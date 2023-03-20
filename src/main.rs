@@ -1,8 +1,8 @@
 mod command_matcher;
 mod history;
+mod selector;
 
-use crate::command_matcher::CommandMatcher;
-use crate::history::History;
+use crate::{command_matcher::CommandMatcher, history::History, selector::Selector};
 
 fn main() {
     let history = match History::new().get() {
@@ -30,7 +30,8 @@ fn main() {
     let suggested_commands = suggestions
         .into_iter()
         .map(|suggestion| suggestion.command)
+        .take(5)
         .collect::<Vec<String>>();
 
-    println!("Suggesions:\n{:?}", suggested_commands);
+    Selector::new(suggested_commands).show();
 }
