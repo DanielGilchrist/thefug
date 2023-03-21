@@ -11,14 +11,14 @@ fn main() {
         Ok(history) => history,
         Err(error) => {
             eprintln!("{:?}", error);
-            return
+            return;
         }
     };
 
     let dummy_command = String::from("cargo biuld");
     let Some(mut suggestions) = CommandMatcher::new(history).find_match(&dummy_command) else {
         eprintln!("No suggestions found");
-        return
+        return;
     };
 
     suggestions.sort_by(|suggestion1, suggestion2| {
@@ -37,7 +37,7 @@ fn main() {
 
     let Ok(selected_command) = Selector::new(dummy_command, suggested_commands).show() else {
       eprintln!("No command selected");
-      return
+      return;
     };
 
     execute_command(&selected_command);
