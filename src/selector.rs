@@ -6,35 +6,30 @@ use promkit::{
     selectbox::SelectBox,
     Prompt,
 };
+use std::io::Error;
 
-pub struct Selector(Vec<String>);
+pub struct Selector {
+    command: String,
+    commands: Vec<String>,
+}
 
 impl Selector {
-    pub fn new(commands: Vec<String>) -> Self {
-        Self(commands)
+    pub fn new(command: String, commands: Vec<String>) -> Self {
+        Self { command, commands }
     }
 
-    pub fn show(&self) {
-        let mut selector = match self.build_selector() {
-            Ok(selector) => selector,
-            Err(error) => {
-                eprintln!("{:?}", error);
-                return;
-            }
-        };
-
-        match selector.run() {
-            Ok(selected) => println!("Selected command: {:?}", selected),
-            Err(error) => eprintln!("{:?}", error),
-        };
+    pub fn show(&self) -> Result<String, Error> {
+        let mut selector = self.build_selector()?;
+        selector.run()
     }
 
     fn build_selector(&self) -> promkit::Result<Prompt<State>> {
         let mut selectbox = Box::<SelectBox>::default();
-        selectbox.register_all(&self.0);
+        selectbox.register_all(&self.commands);
 
+        let command = &self.command;
         select::Builder::default()
-            .title("The fug?")
+            .title(format!("The fug? ({command})"))
             .title_color(style::Color::DarkGreen)
             .selectbox(selectbox)
             .build()
