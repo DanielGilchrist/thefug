@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 ngrammatic = "0" # https://github.com/compenguy/ngrammatic
+promkit = "0" # https://github.com/ynqa/promkit
