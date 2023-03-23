@@ -1,6 +1,6 @@
 use std::{fs::File, io, io::Read};
 
-static DEFAULT_LENGTH: usize = 300;
+static DEFAULT_LENGTH: usize = 1000;
 
 pub struct History {
     length: usize,
