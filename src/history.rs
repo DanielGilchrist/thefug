@@ -2,6 +2,28 @@ use std::{fs::File, io, io::Read};
 
 static DEFAULT_LENGTH: usize = 1000;
 
+enum ShellType {
+  Zsh,
+  Fish,
+  Unknown,
+}
+
+pub struct Shell;
+impl Shell {
+  pub fn determine_shell() -> ShellType {
+    std::env::var("SHELL").map_or(ShellType::Unknown, |shell| {
+      if shell.contains("zsh") {
+        ShellType::Zsh
+      } else if shell.contains("fish") {
+        ShellType::Fish
+      } else {
+        ShellType::Unknown
+      }
+    })
+  }
+}
+
+
 pub struct History {
     length: usize,
 }
