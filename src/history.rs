@@ -16,8 +16,20 @@ trait Parser {
 
 struct BashParser;
 impl Parser for BashParser {
-    fn parse(&self, _buf_reader: BufReader<File>, _length: usize) -> Vec<String> {
-        unimplemented!()
+    // echo "hello"
+    // echo "ok" && echo "hmm" (this is a multi-line command)
+    // cat ~/.zsh_history
+    // cargo build
+    // exit
+    fn parse(&self, buf_reader: BufReader<File>, length: usize) -> Vec<String> {
+        buf_reader
+            .lines()
+            .filter_map(|line| line.ok())
+            .collect_vec()
+            .into_iter()
+            .rev()
+            .take(length)
+            .collect_vec()
     }
 }
 
