@@ -1,33 +1,68 @@
 use crate::shell::{self, Shell};
+
 use itertools::Itertools;
-use std::{fs::File, io, io::Read};
+use regex::Regex;
+
+use std::{
+    fs::File,
+    io::{self, BufRead, BufReader},
+};
 
 static DEFAULT_LENGTH: usize = 1000;
 
 trait HistoryParser {
-    fn parse(&self, contents: &str, length: usize) -> Vec<String>;
+    fn parse(&self, buf_reader: BufReader<File>, length: usize) -> Vec<String>;
 }
 
 struct BashParser;
 impl HistoryParser for BashParser {
-    fn parse(&self, _contents: &str, _length: usize) -> Vec<String> {
+    fn parse(&self, _buf_reader: BufReader<File>, _length: usize) -> Vec<String> {
         unimplemented!()
     }
 }
 
 struct FishParser;
+impl FishParser {
+    fn parse_line(&self, line: Result<String, io::Error>, regex: &Regex) -> Option<String> {
+        let line = line.ok()?;
+        let captures = regex.captures(&line)?;
+
+        captures.get(1).map(|m| m.as_str().to_owned())
+    }
+}
+
 impl HistoryParser for FishParser {
-    fn parse(&self, _contents: &str, _length: usize) -> Vec<String> {
-        unimplemented!()
+    // - cmd: echo alpha
+    //   when: 1339717374
+    // - cmd: function foo\necho bar\nend
+    //   when: 1339717377
+    // - cmd: echo this has\\\nbackslashes
+    //   when: 1339717385
+    fn parse(&self, buf_reader: BufReader<File>, length: usize) -> Vec<String> {
+        let fish_regex = Regex::new(r#"\s*cmd:\s*(.+)$"#).unwrap();
+
+        buf_reader
+            .lines()
+            .filter_map(|line| self.parse_line(line, &fish_regex))
+            .collect_vec()
+            .into_iter()
+            .unique()
+            .rev()
+            .take(length)
+            .collect()
     }
 }
 
 struct ZshParser;
 impl HistoryParser for ZshParser {
-    fn parse(&self, contents: &str, length: usize) -> Vec<String> {
-        contents
-            .split('\n')
+    fn parse(&self, buf_reader: BufReader<File>, length: usize) -> Vec<String> {
+        // TODO: Refactor - this is a mess and doesn't handle edge cases
+        buf_reader
+            .lines()
+            .filter_map(|line| line.ok())
             .unique()
+            .collect_vec()
+            .into_iter()
             .rev()
             .take(length)
             .filter_map(|line| {
@@ -67,15 +102,8 @@ impl History {
         ))?;
 
         let file = File::open(location)?;
-        let contents = self.file_contents(file)?;
+        let buf_reader = BufReader::new(file);
 
-        Ok(strategy.parse(&contents, self.length))
-    }
-
-    fn file_contents(&self, mut file: File) -> Result<String, io::Error> {
-        let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer)?;
-
-        Ok(String::from_utf8_lossy(&buffer).to_string())
+        Ok(strategy.parse(buf_reader, self.length))
     }
 }

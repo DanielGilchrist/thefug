@@ -21,6 +21,11 @@ fn main() {
         }
     };
 
+    if history.len() < 2 {
+        eprintln!("Not enough history to suggest commands");
+        return;
+    }
+
     // Drop command that executed this program
     history.swap_remove(0);
     let last_command = history.swap_remove(1);
