@@ -55,21 +55,41 @@ impl Parser for FishParser {
 
 struct ZshParser;
 impl Parser for ZshParser {
+    // : 1679749063:0;cargo fmt
+    // : 1679750298:0;echo "ok" \\
+    //   && echo "hmm"
+    // : 1679750300:0;cat ~/.zsh_history
     fn parse(&self, buf_reader: BufReader<File>, length: usize) -> Vec<String> {
-        // TODO: Refactor - this is a mess and doesn't handle edge cases
-        buf_reader
-            .lines()
-            .filter_map(|line| line.ok())
-            .unique()
-            .collect_vec()
-            .into_iter()
-            .rev()
-            .take(length)
-            .filter_map(|line| {
-                let line_parts = line.split(';').collect_vec();
-                line_parts.get(1).map(|part| part.to_string())
-            })
-            .collect_vec()
+        let mut commands = vec![];
+        let mut current_command = String::new();
+
+        for line in buf_reader.lines() {
+            let line = line.unwrap();
+
+            if line.starts_with(':') {
+                // Push the previous commmand
+                if !current_command.is_empty() {
+                    commands.push(current_command.trim().to_string());
+                }
+
+                let command = line.split(';').last().unwrap().trim().to_string();
+                current_command.clear();
+                current_command.push_str(&command);
+            } else {
+                // Append to current command
+                current_command.push_str(&line);
+            }
+        }
+
+        // Push the last command
+        if !current_command.is_empty() {
+            commands.push(current_command.trim().to_string());
+        }
+
+        commands.reverse();
+        commands.truncate(length);
+
+        commands
     }
 }
 
