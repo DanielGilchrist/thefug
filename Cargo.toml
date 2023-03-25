@@ -6,5 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+itertools = "0" # https://github.com/rust-itertools/itertools
 ngrammatic = "0" # https://github.com/compenguy/ngrammatic
 promkit = "0" # https://github.com/ynqa/promkit
+regex = "1" # https://github.com/rust-lang/regex

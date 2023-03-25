@@ -1,21 +1,30 @@
 mod command_matcher;
 mod history;
 mod selector;
+mod shell;
 
 use std::{io, io::Write, process::Command};
 
-use crate::{command_matcher::CommandMatcher, history::History, selector::Selector};
+use crate::{command_matcher::CommandMatcher, history::History, selector::Selector, shell::Shell};
+
+use itertools::Itertools;
 
 static MAX_SUGGESTIONS: usize = 5;
 
 fn main() {
-    let mut history = match History::new().get() {
+    let shell = Shell::default();
+    let mut history = match History::new(shell).parse() {
         Ok(history) => history,
         Err(error) => {
             eprintln!("{:?}", error);
             return;
         }
     };
+
+    if history.len() < 2 {
+        eprintln!("Not enough history to suggest commands");
+        return;
+    }
 
     // Drop command that executed this program
     history.swap_remove(0);
@@ -49,7 +58,7 @@ fn main() {
 }
 
 fn execute_command(selected_command: &str) {
-    let mut command_with_args = selected_command.split_whitespace().collect::<Vec<_>>();
+    let mut command_with_args = selected_command.split_whitespace().collect_vec();
     let command_head = command_with_args.remove(0);
     let mut command = Command::new(command_head);
 

@@ -1,9 +1,9 @@
+use itertools::Itertools;
 use ngrammatic::{Corpus, CorpusBuilder, Pad};
 
 static MIN_SIMILARITY: f32 = 0.4;
 static THRESHOLD: f32 = 0.25;
 
-#[derive(Debug)]
 pub struct Suggestion {
     pub command: String,
     pub similarity: f32,
@@ -38,7 +38,7 @@ impl CommandMatcher {
                     None
                 }
             })
-            .collect::<Vec<_>>();
+            .collect_vec();
 
         if suggestions.is_empty() {
             None

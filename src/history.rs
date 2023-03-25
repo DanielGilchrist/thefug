@@ -1,46 +1,109 @@
-use std::{fs::File, io, io::Read};
+use crate::shell::{self, Shell};
+
+use itertools::Itertools;
+use regex::Regex;
+
+use std::{
+    fs::File,
+    io::{self, BufRead, BufReader},
+};
 
 static DEFAULT_LENGTH: usize = 1000;
 
+trait Parser {
+    fn parse(&self, buf_reader: BufReader<File>, length: usize) -> Vec<String>;
+}
+
+struct BashParser;
+impl Parser for BashParser {
+    fn parse(&self, _buf_reader: BufReader<File>, _length: usize) -> Vec<String> {
+        unimplemented!()
+    }
+}
+
+struct FishParser;
+impl FishParser {
+    fn parse_line(&self, line: Result<String, io::Error>, regex: &Regex) -> Option<String> {
+        let line = line.ok()?;
+        let captures = regex.captures(&line)?;
+
+        captures.get(1).map(|m| m.as_str().to_owned())
+    }
+}
+
+impl Parser for FishParser {
+    // - cmd: echo alpha
+    //   when: 1339717374
+    // - cmd: function foo\necho bar\nend
+    //   when: 1339717377
+    // - cmd: echo this has\\\nbackslashes
+    //   when: 1339717385
+    fn parse(&self, buf_reader: BufReader<File>, length: usize) -> Vec<String> {
+        let fish_regex = Regex::new(r#"\s*cmd:\s*(.+)$"#).unwrap();
+
+        buf_reader
+            .lines()
+            .filter_map(|line| self.parse_line(line, &fish_regex))
+            .collect_vec()
+            .into_iter()
+            .unique()
+            .rev()
+            .take(length)
+            .collect()
+    }
+}
+
+struct ZshParser;
+impl Parser for ZshParser {
+    fn parse(&self, buf_reader: BufReader<File>, length: usize) -> Vec<String> {
+        // TODO: Refactor - this is a mess and doesn't handle edge cases
+        buf_reader
+            .lines()
+            .filter_map(|line| line.ok())
+            .unique()
+            .collect_vec()
+            .into_iter()
+            .rev()
+            .take(length)
+            .filter_map(|line| {
+                let line_parts = line.split(';').collect_vec();
+                line_parts.get(1).map(|part| part.to_string())
+            })
+            .collect_vec()
+    }
+}
+
 pub struct History {
     length: usize,
+    shell: Shell,
 }
 
 impl History {
-    pub fn new() -> History {
+    pub fn new(shell: Shell) -> History {
         History {
             length: DEFAULT_LENGTH,
+            shell,
         }
     }
 
-    pub fn get(&self) -> Result<Vec<String>, io::Error> {
-        // TODO - Handle this error gracefully
-        let home = std::env::var("HOME").unwrap();
-        let file_name = format!("{home}/.zsh_history");
-
-        self.history_contents(&file_name)
+    pub fn parse(&self) -> Result<Vec<String>, io::Error> {
+        match self.shell.type_ {
+            shell::Type::Bash => self._parse(BashParser),
+            shell::Type::Fish => self._parse(FishParser),
+            shell::Type::Zsh => self._parse(ZshParser),
+            shell::Type::Unknown => unimplemented!(),
+        }
     }
 
-    fn history_contents(&self, file_name: &str) -> Result<Vec<String>, io::Error> {
-        let mut file = File::open(file_name)?;
-        let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer)?;
+    fn _parse<T: Parser>(&self, parser: T) -> Result<Vec<String>, io::Error> {
+        let location = self.shell.history_location().ok_or(io::Error::new(
+            io::ErrorKind::NotFound,
+            "History location not found",
+        ))?;
 
-        let string = String::from_utf8_lossy(&buffer).to_string();
-        let parsed_history = self.parse_history_contents(&string);
+        let file = File::open(location)?;
+        let buf_reader = BufReader::new(file);
 
-        Ok(parsed_history)
-    }
-
-    fn parse_history_contents(&self, contents: &str) -> Vec<String> {
-        contents
-            .split('\n')
-            .rev()
-            .take(self.length)
-            .filter_map(|line| {
-                let line_parts = line.split(';').collect::<Vec<_>>();
-                line_parts.get(1).map(|part| part.to_string())
-            })
-            .collect::<Vec<_>>()
+        Ok(parser.parse(buf_reader, self.length))
     }
 }
