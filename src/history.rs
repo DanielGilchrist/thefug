@@ -1,6 +1,6 @@
-use std::{fs::File, io, io::Read};
-
+use crate::shell::{self, Shell};
 use itertools::Itertools;
+use std::{fs::File, io, io::Read};
 
 static DEFAULT_LENGTH: usize = 1000;
 
@@ -26,19 +26,34 @@ impl HistoryParser for ZshParser {
 
 pub struct History {
     length: usize,
-    history_path: String,
+    shell: Shell,
 }
 
 impl History {
-    pub fn new(history_path: String) -> History {
+    pub fn new(shell: Shell) -> History {
         History {
             length: DEFAULT_LENGTH,
-            history_path,
+            shell,
         }
     }
 
-    pub fn parse<T: HistoryParser>(&self, strategy: T) -> Result<Vec<String>, io::Error> {
-        let mut file = File::open(&self.history_path)?;
+    pub fn parse(&self) -> Result<Vec<String>, io::Error> {
+        let strategy = match self.shell.type_ {
+            shell::Type::Zsh => ZshParser,
+            shell::Type::Fish => unimplemented!(),
+            shell::Type::Unknown => unimplemented!(),
+        };
+
+        self._parse(strategy)
+    }
+
+    fn _parse<T: HistoryParser>(&self, strategy: T) -> Result<Vec<String>, io::Error> {
+        let location = self.shell.history_location().ok_or(io::Error::new(
+            io::ErrorKind::NotFound,
+            "History location not found",
+        ))?;
+
+        let mut file = File::open(location)?;
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer)?;
 

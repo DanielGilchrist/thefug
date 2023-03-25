@@ -4,10 +4,13 @@ pub enum Type {
     Unknown,
 }
 
-pub struct Shell(Type);
+pub struct Shell {
+    pub type_: Type,
+}
+
 impl Shell {
     pub fn history_location(&self) -> Option<String> {
-        match self.0 {
+        match self.type_ {
             Type::Zsh => self.with_home(".zsh_history"),
             Type::Fish => self.with_home(".local/share/fish/fish_history"),
             Type::Unknown => None,
@@ -34,6 +37,8 @@ impl Shell {
 
 impl Default for Shell {
     fn default() -> Self {
-        Self(Self::determine_shell())
+        Self {
+            type_: Self::determine_shell(),
+        }
     }
 }

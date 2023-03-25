@@ -12,18 +12,8 @@ use itertools::Itertools;
 static MAX_SUGGESTIONS: usize = 5;
 
 fn main() {
-    let history_location = {
-        let shell = Shell::default();
-        match shell.history_location() {
-            Some(history_location) => history_location,
-            None => {
-                eprintln!("Unable to determine history location. It's likely that your shell is not supported.");
-                return;
-            }
-        }
-    };
-
-    let mut history = match History::new(history_location).parse(history::ZshParser) {
+    let shell = Shell::default();
+    let mut history = match History::new(shell).parse() {
         Ok(history) => history,
         Err(error) => {
             eprintln!("{:?}", error);
