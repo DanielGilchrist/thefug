@@ -53,12 +53,16 @@ impl History {
             "History location not found",
         ))?;
 
-        let mut file = File::open(location)?;
+        let file = File::open(location)?;
+        let contents = self.file_contents(file)?;
+
+        Ok(strategy.parse(&contents, self.length))
+    }
+
+    fn file_contents(&self, mut file: File) -> Result<String, io::Error> {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer)?;
 
-        let string = String::from_utf8_lossy(&buffer).to_string();
-
-        Ok(strategy.parse(&string, self.length))
+        Ok(String::from_utf8_lossy(&buffer).to_string())
     }
 }
