@@ -1,68 +1,49 @@
 use std::{fs::File, io, io::Read};
 
+use itertools::Itertools;
+
 static DEFAULT_LENGTH: usize = 1000;
 
-enum ShellType {
-  Zsh,
-  Fish,
-  Unknown,
+pub trait HistoryParser {
+    fn parse(&self, contents: &str, length: usize) -> Vec<String>;
 }
 
-pub struct Shell;
-impl Shell {
-  pub fn determine_shell() -> ShellType {
-    std::env::var("SHELL").map_or(ShellType::Unknown, |shell| {
-      if shell.contains("zsh") {
-        ShellType::Zsh
-      } else if shell.contains("fish") {
-        ShellType::Fish
-      } else {
-        ShellType::Unknown
-      }
-    })
-  }
+pub struct ZshParser;
+impl HistoryParser for ZshParser {
+    fn parse(&self, contents: &str, length: usize) -> Vec<String> {
+        contents
+            .split('\n')
+            .unique()
+            .rev()
+            .take(length)
+            .filter_map(|line| {
+                let line_parts = line.split(';').collect_vec();
+                line_parts.get(1).map(|part| part.to_string())
+            })
+            .collect_vec()
+    }
 }
-
 
 pub struct History {
     length: usize,
+    history_path: String,
 }
 
 impl History {
-    pub fn new() -> History {
+    pub fn new(history_path: String) -> History {
         History {
             length: DEFAULT_LENGTH,
+            history_path,
         }
     }
 
-    pub fn get(&self) -> Result<Vec<String>, io::Error> {
-        // TODO - Handle this error gracefully
-        let home = std::env::var("HOME").unwrap();
-        let file_name = format!("{home}/.zsh_history");
-
-        self.history_contents(&file_name)
-    }
-
-    fn history_contents(&self, file_name: &str) -> Result<Vec<String>, io::Error> {
-        let mut file = File::open(file_name)?;
+    pub fn parse<T: HistoryParser>(&self, strategy: T) -> Result<Vec<String>, io::Error> {
+        let mut file = File::open(&self.history_path)?;
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer)?;
 
         let string = String::from_utf8_lossy(&buffer).to_string();
-        let parsed_history = self.parse_history_contents(&string);
 
-        Ok(parsed_history)
-    }
-
-    fn parse_history_contents(&self, contents: &str) -> Vec<String> {
-        contents
-            .split('\n')
-            .rev()
-            .take(self.length)
-            .filter_map(|line| {
-                let line_parts = line.split(';').collect::<Vec<_>>();
-                line_parts.get(1).map(|part| part.to_string())
-            })
-            .collect::<Vec<_>>()
+        Ok(strategy.parse(&string, self.length))
     }
 }

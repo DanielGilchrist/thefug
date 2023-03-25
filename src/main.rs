@@ -1,15 +1,29 @@
 mod command_matcher;
 mod history;
 mod selector;
+mod shell;
 
 use std::{io, io::Write, process::Command};
 
-use crate::{command_matcher::CommandMatcher, history::History, selector::Selector};
+use crate::{command_matcher::CommandMatcher, history::History, selector::Selector, shell::Shell};
+
+use itertools::Itertools;
 
 static MAX_SUGGESTIONS: usize = 5;
 
 fn main() {
-    let mut history = match History::new().get() {
+    let history_location = {
+        let shell = Shell::default();
+        match shell.history_location() {
+            Some(history_location) => history_location,
+            None => {
+                eprintln!("Unable to determine history location. It's likely that your shell is not supported.");
+                return;
+            }
+        }
+    };
+
+    let mut history = match History::new(history_location).parse(history::ZshParser) {
         Ok(history) => history,
         Err(error) => {
             eprintln!("{:?}", error);
@@ -49,7 +63,7 @@ fn main() {
 }
 
 fn execute_command(selected_command: &str) {
-    let mut command_with_args = selected_command.split_whitespace().collect::<Vec<_>>();
+    let mut command_with_args = selected_command.split_whitespace().collect_vec();
     let command_head = command_with_args.remove(0);
     let mut command = Command::new(command_head);
 

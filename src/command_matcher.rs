@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use ngrammatic::{Corpus, CorpusBuilder, Pad};
 
 static MIN_SIMILARITY: f32 = 0.4;
@@ -38,7 +39,7 @@ impl CommandMatcher {
                     None
                 }
             })
-            .collect::<Vec<_>>();
+            .collect_vec();
 
         if suggestions.is_empty() {
             None
