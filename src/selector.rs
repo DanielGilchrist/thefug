@@ -5,6 +5,7 @@ pub struct Selector {
     commands: Vec<String>,
 }
 
+// TODO: Don't rely on a crate for this
 impl Selector {
     pub fn new(command: String, commands: Vec<String>) -> Self {
         Self { command, commands }
