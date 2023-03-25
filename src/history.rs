@@ -10,12 +10,12 @@ use std::{
 
 static DEFAULT_LENGTH: usize = 1000;
 
-trait HistoryParser {
+trait Parser {
     fn parse(&self, buf_reader: BufReader<File>, length: usize) -> Vec<String>;
 }
 
 struct BashParser;
-impl HistoryParser for BashParser {
+impl Parser for BashParser {
     fn parse(&self, _buf_reader: BufReader<File>, _length: usize) -> Vec<String> {
         unimplemented!()
     }
@@ -31,7 +31,7 @@ impl FishParser {
     }
 }
 
-impl HistoryParser for FishParser {
+impl Parser for FishParser {
     // - cmd: echo alpha
     //   when: 1339717374
     // - cmd: function foo\necho bar\nend
@@ -54,7 +54,7 @@ impl HistoryParser for FishParser {
 }
 
 struct ZshParser;
-impl HistoryParser for ZshParser {
+impl Parser for ZshParser {
     fn parse(&self, buf_reader: BufReader<File>, length: usize) -> Vec<String> {
         // TODO: Refactor - this is a mess and doesn't handle edge cases
         buf_reader
@@ -95,7 +95,7 @@ impl History {
         }
     }
 
-    fn _parse<T: HistoryParser>(&self, strategy: T) -> Result<Vec<String>, io::Error> {
+    fn _parse<T: Parser>(&self, parser: T) -> Result<Vec<String>, io::Error> {
         let location = self.shell.history_location().ok_or(io::Error::new(
             io::ErrorKind::NotFound,
             "History location not found",
@@ -104,6 +104,6 @@ impl History {
         let file = File::open(location)?;
         let buf_reader = BufReader::new(file);
 
-        Ok(strategy.parse(buf_reader, self.length))
+        Ok(parser.parse(buf_reader, self.length))
     }
 }
