@@ -1,6 +1,7 @@
 pub enum Type {
-    Zsh,
+    Bash,
     Fish,
+    Zsh,
     Unknown,
 }
 
@@ -11,8 +12,9 @@ pub struct Shell {
 impl Shell {
     pub fn history_location(&self) -> Option<String> {
         match self.type_ {
-            Type::Zsh => self.with_home(".zsh_history"),
+            Type::Bash => self.with_home(".bash_history"),
             Type::Fish => self.with_home(".local/share/fish/fish_history"),
+            Type::Zsh => self.with_home(".zsh_history"),
             Type::Unknown => None,
         }
     }
@@ -24,10 +26,12 @@ impl Shell {
 
     fn determine_shell() -> Type {
         std::env::var("SHELL").map_or(Type::Unknown, |shell_output| {
-            if shell_output.contains("zsh") {
-                Type::Zsh
+            if shell_output.contains("bash") {
+                Type::Bash
             } else if shell_output.contains("fish") {
                 Type::Fish
+            } else if shell_output.contains("zsh") {
+                Type::Zsh
             } else {
                 Type::Unknown
             }

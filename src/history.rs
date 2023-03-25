@@ -4,11 +4,25 @@ use std::{fs::File, io, io::Read};
 
 static DEFAULT_LENGTH: usize = 1000;
 
-pub trait HistoryParser {
+trait HistoryParser {
     fn parse(&self, contents: &str, length: usize) -> Vec<String>;
 }
 
-pub struct ZshParser;
+struct BashParser;
+impl HistoryParser for BashParser {
+    fn parse(&self, _contents: &str, _length: usize) -> Vec<String> {
+        unimplemented!()
+    }
+}
+
+struct FishParser;
+impl HistoryParser for FishParser {
+    fn parse(&self, _contents: &str, _length: usize) -> Vec<String> {
+        unimplemented!()
+    }
+}
+
+struct ZshParser;
 impl HistoryParser for ZshParser {
     fn parse(&self, contents: &str, length: usize) -> Vec<String> {
         contents
@@ -38,13 +52,12 @@ impl History {
     }
 
     pub fn parse(&self) -> Result<Vec<String>, io::Error> {
-        let strategy = match self.shell.type_ {
-            shell::Type::Zsh => ZshParser,
-            shell::Type::Fish => unimplemented!(),
+        match self.shell.type_ {
+            shell::Type::Bash => self._parse(BashParser),
+            shell::Type::Fish => self._parse(FishParser),
+            shell::Type::Zsh => self._parse(ZshParser),
             shell::Type::Unknown => unimplemented!(),
-        };
-
-        self._parse(strategy)
+        }
     }
 
     fn _parse<T: HistoryParser>(&self, strategy: T) -> Result<Vec<String>, io::Error> {
