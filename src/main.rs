@@ -1,19 +1,44 @@
 mod command_matcher;
+mod executor;
 mod history;
 mod selector;
 mod shell;
 
-use std::{io, io::Write, process::Command};
-
-use crate::{command_matcher::CommandMatcher, history::History, selector::Selector, shell::Shell};
-
-use itertools::Itertools;
+use crate::{
+    command_matcher::CommandMatcher, executor::Executor, history::History, selector::Selector,
+    shell::Shell,
+};
 
 static MAX_SUGGESTIONS: usize = 5;
+static NO_SUGGESTION_NEEDED: &str = "No fugs given.";
+
+struct CommandWithHistory {
+    command: String,
+    history: Vec<String>,
+}
+
+impl CommandWithHistory {
+    pub fn new(command: String, history: Vec<String>) -> CommandWithHistory {
+        CommandWithHistory { command, history }
+    }
+
+    pub fn from(mut history: Vec<String>) -> Option<CommandWithHistory> {
+        if history.len() < 2 {
+            return None;
+        }
+
+        // Drop command that executed this program
+        history.swap_remove(0);
+        let command = history.swap_remove(1);
+
+        Some(CommandWithHistory::new(command, history))
+    }
+}
 
 fn main() {
     let shell = Shell::default();
-    let mut history = match History::new(shell).parse() {
+
+    let history = match History::new(shell).parse() {
         Ok(history) => history,
         Err(error) => {
             eprintln!("{:?}", error);
@@ -21,27 +46,30 @@ fn main() {
         }
     };
 
-    if history.len() < 2 {
-        eprintln!("Not enough history to suggest commands");
-        return;
-    }
-
-    // Drop command that executed this program
-    history.swap_remove(0);
-    let last_command = history.swap_remove(1);
-
-    let Some(mut suggestions) = CommandMatcher::new(history).find_match(&last_command) else {
-        eprintln!("No suggestions found");
-        return;
+    let command_with_history = match CommandWithHistory::from(history) {
+        Some(command_with_history) => command_with_history,
+        None => return no_fugs_given(),
     };
 
-    suggestions.sort_by(|suggestion1, suggestion2| {
-        suggestion1
-            .similarity
-            .partial_cmp(&suggestion2.similarity)
-            .unwrap()
-    });
-    suggestions.reverse();
+    let suggestions = {
+        match CommandMatcher::new(command_with_history.history)
+            .find_match(&command_with_history.command)
+        {
+            Some(mut suggestions) => {
+                suggestions.sort_by(|suggestion1, suggestion2| {
+                    suggestion1
+                        .similarity
+                        .partial_cmp(&suggestion2.similarity)
+                        .unwrap()
+                });
+
+                suggestions.reverse();
+
+                suggestions
+            }
+            None => return no_fugs_given(),
+        }
+    };
 
     let suggested_commands = suggestions
         .into_iter()
@@ -49,29 +77,16 @@ fn main() {
         .take(MAX_SUGGESTIONS)
         .collect::<Vec<String>>();
 
-    let Ok(selected_command) = Selector::new(last_command, suggested_commands).show() else {
-      eprintln!("No command selected");
-      return;
+    let Ok(selected_command) = Selector::new(command_with_history.command, suggested_commands).show() else {
+      return no_fugs_given();
     };
 
-    execute_command(&selected_command);
+    match Executor::execute_command(&selected_command) {
+        Ok(_) => (),
+        Err(error) => eprintln!("{:?}", error),
+    };
 }
 
-fn execute_command(selected_command: &str) {
-    let mut command_with_args = selected_command.split_whitespace().collect_vec();
-    let command_head = command_with_args.remove(0);
-    let mut command = Command::new(command_head);
-
-    command_with_args.into_iter().for_each(|arg| {
-        command.arg(arg);
-    });
-
-    println!("Running {selected_command}...");
-    let selection = command
-        .output()
-        .unwrap_or_else(|_| panic!("Failed to run {selected_command}"));
-
-    // TODO - Figure out how to write with colour
-    io::stdout().write_all(&selection.stdout).unwrap();
-    io::stderr().write_all(&selection.stderr).unwrap();
+fn no_fugs_given() {
+    println!("{NO_SUGGESTION_NEEDED}");
 }
