@@ -1,13 +1,9 @@
 mod command_matcher;
-mod executor;
 mod history;
 mod selector;
 mod shell;
 
-use crate::{
-    command_matcher::CommandMatcher, executor::Executor, history::History, selector::Selector,
-    shell::Shell,
-};
+use crate::{command_matcher::CommandMatcher, history::History, selector::Selector, shell::Shell};
 
 static MAX_SUGGESTIONS: usize = 5;
 static NO_SUGGESTION_NEEDED: &str = "No fugs given.";
@@ -81,10 +77,7 @@ fn main() {
       return no_fugs_given();
     };
 
-    match Executor::execute_command(&selected_command) {
-        Ok(_) => (),
-        Err(error) => eprintln!("{:?}", error),
-    };
+    println!("{selected_command}");
 }
 
 fn no_fugs_given() {

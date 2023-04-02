@@ -76,20 +76,27 @@ impl Parser for ZshParser {
         let mut current_command = String::new();
 
         for line in buf_reader.lines() {
-            let line = line.unwrap();
+            match line {
+                Ok(line) => {
+                    if line.starts_with(':') {
+                        // Push the previous commmand
+                        if !current_command.is_empty() {
+                            commands.push(current_command.trim().to_string());
+                        }
 
-            if line.starts_with(':') {
-                // Push the previous commmand
-                if !current_command.is_empty() {
-                    commands.push(current_command.trim().to_string());
+                        let command = line.split(';').last().unwrap().trim().to_string();
+
+                        current_command.clear();
+                        current_command.push_str(&command);
+                    } else {
+                        // Append to current command
+                        current_command.push_str(&line);
+                    }
                 }
-
-                let command = line.split(';').last().unwrap().trim().to_string();
-                current_command.clear();
-                current_command.push_str(&command);
-            } else {
-                // Append to current command
-                current_command.push_str(&line);
+                Err(_) => {
+                    // Clear current command and skip line
+                    current_command.clear();
+                }
             }
         }
 
