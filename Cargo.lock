@@ -68,9 +68,9 @@ checksum = "7fcaabb2fef8c910e7f4c7ce9f67a1283a1715879a7c230ca9d6d1ae31f16d91"
 
 [[package]]
 name = "inquire"
-version = "0.6.0"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd079157ad94a32f7511b2e13037f3ae417ad80a6a9b0de29154d48b86f5d6c8"
+checksum = "f4bf420bd01f298a3ed8f57af9babedb296b4edfc1dbd8b159cee883aa90edaa"
 dependencies = [
  "bitflags",
  "crossterm",
