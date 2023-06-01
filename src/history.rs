@@ -24,7 +24,7 @@ impl Parser for BashParser {
     fn parse(&self, buf_reader: BufReader<File>, length: usize) -> Vec<String> {
         buf_reader
             .lines()
-            .filter_map(|line| line.ok())
+            .map_while(Result::ok)
             .collect_vec()
             .into_iter()
             .rev()
