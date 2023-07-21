@@ -1,12 +1,27 @@
 mod command_matcher;
 mod history;
+mod init;
 mod selector;
 mod shell;
 
-use crate::{command_matcher::CommandMatcher, history::History, selector::Selector, shell::Shell};
+use crate::{
+    command_matcher::CommandMatcher, history::History, init::Init, selector::Selector, shell::Shell,
+};
+
+use clap::Parser;
 
 static MAX_SUGGESTIONS: usize = 5;
 static NO_SUGGESTION_NEEDED: &str = "No fugs given.";
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Options {
+    #[clap(long)]
+    init: bool,
+
+    #[clap(long)]
+    initdev: bool,
+}
 
 struct CommandWithHistory {
     command: String,
@@ -33,6 +48,25 @@ impl CommandWithHistory {
 
 fn main() {
     let shell = Shell::default();
+    let options = Options::parse();
+
+    if options.init {
+        match Init::new(shell).init() {
+            Ok(_) => (),
+            Err(error) => eprintln!("{:?}", error),
+        }
+
+        return;
+    }
+
+    if options.initdev {
+        match Init::new(shell).init_dev() {
+            Ok(_) => (),
+            Err(error) => eprintln!("{:?}", error),
+        }
+
+        return;
+    }
 
     let history = match History::new(shell).parse() {
         Ok(history) => history,
