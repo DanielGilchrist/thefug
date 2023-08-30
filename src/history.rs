@@ -51,7 +51,7 @@ impl Parser for FishParser {
     // - cmd: echo this has\\\nbackslashes
     //   when: 1339717385
     fn parse(&self, buf_reader: BufReader<File>, length: usize) -> Vec<String> {
-        let fish_regex = Regex::new(r#"\s*cmd:\s*(.+)$"#).unwrap();
+        let fish_regex = Regex::new(r"\s*cmd:\s*(.+)$").unwrap();
 
         buf_reader
             .lines()

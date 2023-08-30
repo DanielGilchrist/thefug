@@ -107,8 +107,10 @@ fn main() {
         .take(MAX_SUGGESTIONS)
         .collect::<Vec<String>>();
 
-    let Ok(selected_command) = Selector::new(command_with_history.command, suggested_commands).show() else {
-      return no_fugs_given();
+    let Ok(selected_command) =
+        Selector::new(command_with_history.command, suggested_commands).show()
+    else {
+        return no_fugs_given();
     };
 
     println!("{selected_command}");
