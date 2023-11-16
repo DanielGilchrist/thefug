@@ -12,7 +12,7 @@ strip = true      # Strip symbols
 panic = "abort"   # Don't include backtrace when panics occur
 
 [dependencies]
-clap = { version = "4.3.17", features = ["derive"] }
+clap = { version = "4", features = ["derive"] } # https://github.com/clap-rs/clap
 inquire = "0" # https://github.com/mikaelmello/inquire
 itertools = "0" # https://github.com/rust-itertools/itertools
 ngrammatic = "0" # https://github.com/compenguy/ngrammatic
