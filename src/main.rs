@@ -61,7 +61,7 @@ fn main() {
 
     if options.initdev {
         match Init::new(shell).init_dev() {
-            Ok(_) => (),
+            Ok(_) => println!("Successfully initialized dev environment!"),
             Err(error) => eprintln!("{:?}", error),
         }
 
