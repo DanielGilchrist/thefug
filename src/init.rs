@@ -50,7 +50,7 @@ impl Init {
             "
 #!/bin/bash
 
-command=$(cargo run)
+command=$(thefugbindev)
 
 if [ \"$command\" = \"No fugs given.\" ]; then
   echo \"$command\"
@@ -67,7 +67,7 @@ fi
             "
 #!/bin/fish
 
-set command (cargo run)
+set command (thefugbindev)
 
 if \"$command\" = \"No fugs given.\"
   echo \"$command\"
@@ -84,7 +84,7 @@ end
             "
 #!/bin/zsh
 
-command=$(cargo run)
+command=$(thefugbindev)
 
 if [ \"$command\" = \"No fugs given.\" ]; then
   echo \"$command\"
