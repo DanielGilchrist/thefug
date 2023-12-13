@@ -135,10 +135,10 @@ impl History {
     }
 
     fn _parse<T: Parser>(&self, parser: T) -> Result<Vec<String>, io::Error> {
-        let location = self.shell.history_location().ok_or(io::Error::new(
-            io::ErrorKind::NotFound,
-            "History location not found",
-        ))?;
+        let location = self
+            .shell
+            .history_location()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "History location not found"))?;
 
         let file = File::open(location)?;
         let buf_reader = BufReader::new(file);
