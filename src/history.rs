@@ -56,9 +56,9 @@ impl Parser for FishParser {
         buf_reader
             .lines()
             .filter_map(|line| self.parse_line(line, &fish_regex))
+            .unique()
             .collect_vec()
             .into_iter()
-            .unique()
             .rev()
             .take(length)
             .collect()
