@@ -69,7 +69,7 @@ fi
 
 set command (thefugbindev)
 
-if \"$command\" = \"No fugs given.\"
+if test \"$command\" = \"No fugs given.\"
   echo \"$command\"
 else
   echo \"Running: $command\"
