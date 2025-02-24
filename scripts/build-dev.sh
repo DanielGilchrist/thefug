@@ -3,6 +3,10 @@ new_name=thefugbindev
 
 cargo build
 
+if [ $? -ne 0 ]; then
+  exit 1
+fi
+
 mv target/debug/$original_name target/debug/$new_name
 
 echo "Dev build complete!"
