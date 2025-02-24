@@ -21,7 +21,7 @@ impl Init {
 
     pub fn init_dev(&self) -> Result<(), std::io::Error> {
         let mut root = current_dir()?;
-        root.push("thefug");
+        root.push("thefugd");
 
         let script = self.determine_script();
 
