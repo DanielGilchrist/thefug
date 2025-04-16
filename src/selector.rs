@@ -1,4 +1,4 @@
-use inquire::{error::InquireResult, Select};
+use inquire::{Select, error::InquireResult};
 
 pub struct Selector {
     command: String,
