@@ -84,7 +84,7 @@ impl Parser for ZshParser {
                             commands.push(current_command.trim().to_string());
                         }
 
-                        let command = line.split(';').last().unwrap().trim().to_string();
+                        let command = line.split(';').next_back().unwrap().trim().to_string();
 
                         current_command.clear();
                         current_command.push_str(&command);
