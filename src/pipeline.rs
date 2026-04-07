@@ -17,8 +17,8 @@ impl Pipeline {
         }
     }
 
-    pub fn add_pass(mut self, pass: Box<dyn SuggestionPass>) -> Self {
-        self.passes.push(pass);
+    pub fn add_pass(mut self, pass: impl SuggestionPass + 'static) -> Self {
+        self.passes.push(Box::new(pass));
         self
     }
 
@@ -70,12 +70,12 @@ mod tests {
     #[test]
     fn collects_from_multiple_passes() {
         let pipeline = Pipeline::new(5)
-            .add_pass(Box::new(FakePass {
+            .add_pass(FakePass {
                 results: vec![("git".into(), 0.9)],
-            }))
-            .add_pass(Box::new(FakePass {
+            })
+            .add_pass(FakePass {
                 results: vec![("gzip".into(), 0.5)],
-            }));
+            });
 
         let suggestions = pipeline.run("gti");
 
@@ -86,13 +86,13 @@ mod tests {
 
     #[test]
     fn sorts_by_similarity_descending() {
-        let pipeline = Pipeline::new(5).add_pass(Box::new(FakePass {
+        let pipeline = Pipeline::new(5).add_pass(FakePass {
             results: vec![
                 ("low".into(), 0.3),
                 ("high".into(), 0.9),
                 ("mid".into(), 0.6),
             ],
-        }));
+        });
 
         let suggestions = pipeline.run("x");
         let commands: Vec<&str> = suggestions.iter().map(|s| s.command.as_str()).collect();
@@ -102,9 +102,9 @@ mod tests {
 
     #[test]
     fn truncates_to_max_suggestions() {
-        let pipeline = Pipeline::new(2).add_pass(Box::new(FakePass {
+        let pipeline = Pipeline::new(2).add_pass(FakePass {
             results: vec![("a".into(), 0.9), ("b".into(), 0.8), ("c".into(), 0.7)],
-        }));
+        });
 
         let suggestions = pipeline.run("x");
 
@@ -114,12 +114,12 @@ mod tests {
     #[test]
     fn deduplicates_by_command() {
         let pipeline = Pipeline::new(5)
-            .add_pass(Box::new(FakePass {
+            .add_pass(FakePass {
                 results: vec![("git".into(), 0.9)],
-            }))
-            .add_pass(Box::new(FakePass {
+            })
+            .add_pass(FakePass {
                 results: vec![("git".into(), 0.8)],
-            }));
+            });
 
         let suggestions = pipeline.run("gti");
         let commands: Vec<&str> = suggestions.iter().map(|s| s.command.as_str()).collect();

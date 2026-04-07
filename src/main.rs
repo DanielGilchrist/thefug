@@ -90,8 +90,8 @@ fn main() {
     };
 
     let pipeline = Pipeline::new(MAX_SUGGESTIONS)
-        .add_pass(Box::new(SubcommandPass::new(history)))
-        .add_pass(Box::new(PathPass::new()));
+        .add_pass(SubcommandPass::new(history))
+        .add_pass(PathPass::new());
     let suggestions = pipeline.run(&command);
 
     if suggestions.is_empty() {
@@ -198,7 +198,7 @@ mod tests {
         assert_eq!(command, "git puuulllll");
 
         let pipeline = Pipeline::new(MAX_SUGGESTIONS)
-            .add_pass(Box::new(SubcommandPass::new(cleaned_history)));
+            .add_pass(SubcommandPass::new(cleaned_history));
         let suggestions = pipeline.run(&command);
 
         let commands: Vec<&str> = suggestions.iter().map(|s| s.command.as_str()).collect();
