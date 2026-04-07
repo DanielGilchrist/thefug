@@ -59,7 +59,6 @@ impl Parser for FishParser {
             .collect_vec()
             .into_iter()
             .rev()
-            .unique()
             .take(length)
             .collect()
     }

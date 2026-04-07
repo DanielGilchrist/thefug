@@ -15,5 +15,5 @@ panic = "abort"   # Don't include backtrace when panics occur
 clap = { version = "4", features = ["derive"] } # https://github.com/clap-rs/clap
 inquire = "0" # https://github.com/mikaelmello/inquire
 itertools = "0" # https://github.com/rust-itertools/itertools
-ngrammatic = "0" # https://github.com/compenguy/ngrammatic
 regex = "1" # https://github.com/rust-lang/regex
+strsim = "0.11" # https://github.com/rapidfuzz/strsim-rs
