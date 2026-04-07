@@ -10,11 +10,9 @@ mod suggestion;
 use crate::{
     history::History,
     init::Init,
-    path_scan::PathPass,
-    pipeline::Pipeline,
+    pipeline::{Pass, Pipeline},
     selector::Selector,
     shell::Shell,
-    subcommand_scan::SubcommandPass,
 };
 
 use clap::Parser;
@@ -90,8 +88,8 @@ fn main() {
     };
 
     let pipeline = Pipeline::new(MAX_SUGGESTIONS)
-        .add_pass(SubcommandPass::new(history))
-        .add_pass(PathPass::new());
+        .add_pass(Pass::Subcommand { history })
+        .add_pass(Pass::Path);
     let suggestions = pipeline.run(&command);
 
     if suggestions.is_empty() {
@@ -138,7 +136,6 @@ mod tests {
 
     #[test]
     fn extract_removes_all_copies_of_failed_command() {
-        // Mimics real scenario: user retried the typo 3 times
         let history = vec![
             "./scripts/build-dev.sh && fugd".into(),
             "git puuulllll".into(),
@@ -163,14 +160,10 @@ mod tests {
         assert_eq!(cleaned, vec!["git pull", "git checkout main"]);
     }
 
-    /// End-to-end test mimicking the exact real-world scenario from debug output.
-    /// User typed `git puuulllll` 3 times, with `./scripts/build-dev.sh && fugd` between each.
-    /// History also has git checkout (freq 32), git pull (freq 1), git pll (past typo, freq 1).
     #[test]
     fn end_to_end_repeated_typo_scenario() {
         let mut history: Vec<String> = Vec::new();
 
-        // Most recent first (as fish parser returns)
         history.push("./scripts/build-dev.sh && fugd".into());
         history.push("git puuulllll".into());
         history.push("./scripts/build-dev.sh && fugd".into());
@@ -182,7 +175,6 @@ mod tests {
         history.push("./scripts/build-dev.sh".into());
         history.push("cat README.md".into());
 
-        // Older history with real git commands
         for _ in 0..32 {
             history.push("git checkout main".into());
         }
@@ -191,14 +183,13 @@ mod tests {
         history.push("git push".into());
         history.push("git init".into());
         history.push("git commit -m 'fix'".into());
-        history.push("git pu.ll".into()); // another past typo
+        history.push("git pu.ll".into());
 
-        // Extract and run pipeline (without PathPass since we can't control $PATH in tests)
         let (command, cleaned_history) = extract_failed_command(history).unwrap();
         assert_eq!(command, "git puuulllll");
 
         let pipeline = Pipeline::new(MAX_SUGGESTIONS)
-            .add_pass(SubcommandPass::new(cleaned_history));
+            .add_pass(Pass::Subcommand { history: cleaned_history });
         let suggestions = pipeline.run(&command);
 
         let commands: Vec<&str> = suggestions.iter().map(|s| s.command.as_str()).collect();

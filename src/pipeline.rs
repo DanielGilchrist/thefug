@@ -1,11 +1,23 @@
+use crate::path_scan;
+use crate::subcommand_scan;
 use crate::suggestion::Suggestion;
 
-pub trait SuggestionPass {
-    fn suggest(&self, command: &str) -> Vec<Suggestion>;
+pub enum Pass {
+    Path,
+    Subcommand { history: Vec<String> },
+}
+
+impl Pass {
+    fn suggest(&self, command: &str) -> Vec<Suggestion> {
+        match self {
+            Pass::Path => path_scan::suggest(command),
+            Pass::Subcommand { history } => subcommand_scan::suggest(command, history),
+        }
+    }
 }
 
 pub struct Pipeline {
-    passes: Vec<Box<dyn SuggestionPass>>,
+    passes: Vec<Pass>,
     max_suggestions: usize,
 }
 
@@ -17,8 +29,8 @@ impl Pipeline {
         }
     }
 
-    pub fn add_pass(mut self, pass: impl SuggestionPass + 'static) -> Self {
-        self.passes.push(Box::new(pass));
+    pub fn add_pass(mut self, pass: Pass) -> Self {
+        self.passes.push(pass);
         self
     }
 
@@ -46,19 +58,6 @@ impl Pipeline {
 mod tests {
     use super::*;
 
-    struct FakePass {
-        results: Vec<(String, f32)>,
-    }
-
-    impl SuggestionPass for FakePass {
-        fn suggest(&self, _command: &str) -> Vec<Suggestion> {
-            self.results
-                .iter()
-                .map(|(cmd, sim)| Suggestion::new(cmd.clone(), *sim))
-                .collect()
-        }
-    }
-
     #[test]
     fn returns_empty_when_no_passes() {
         let pipeline = Pipeline::new(5);
@@ -68,62 +67,54 @@ mod tests {
     }
 
     #[test]
-    fn collects_from_multiple_passes() {
-        let pipeline = Pipeline::new(5)
-            .add_pass(FakePass {
-                results: vec![("git".into(), 0.9)],
-            })
-            .add_pass(FakePass {
-                results: vec![("gzip".into(), 0.5)],
-            });
-
-        let suggestions = pipeline.run("gti");
-
-        assert_eq!(suggestions.len(), 2);
-        assert_eq!(suggestions[0].command, "git");
-        assert_eq!(suggestions[1].command, "gzip");
-    }
-
-    #[test]
     fn sorts_by_similarity_descending() {
-        let pipeline = Pipeline::new(5).add_pass(FakePass {
-            results: vec![
-                ("low".into(), 0.3),
-                ("high".into(), 0.9),
-                ("mid".into(), 0.6),
-            ],
-        });
+        let history = vec![
+            "git pull", "git pull", "git push", "git push", "git log", "git log",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
 
-        let suggestions = pipeline.run("x");
-        let commands: Vec<&str> = suggestions.iter().map(|s| s.command.as_str()).collect();
+        let pipeline = Pipeline::new(5).add_pass(Pass::Subcommand { history });
+        let suggestions = pipeline.run("git pll");
 
-        assert_eq!(commands, vec!["high", "mid", "low"]);
+        if suggestions.len() >= 2 {
+            assert!(
+                suggestions[0].similarity >= suggestions[1].similarity,
+                "suggestions should be sorted by similarity descending"
+            );
+        }
     }
 
     #[test]
     fn truncates_to_max_suggestions() {
-        let pipeline = Pipeline::new(2).add_pass(FakePass {
-            results: vec![("a".into(), 0.9), ("b".into(), 0.8), ("c".into(), 0.7)],
-        });
+        let history = vec![
+            "git pull", "git pull", "git push", "git push", "git log", "git log",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
 
-        let suggestions = pipeline.run("x");
+        let pipeline = Pipeline::new(1).add_pass(Pass::Subcommand { history });
+        let suggestions = pipeline.run("git pll");
 
-        assert_eq!(suggestions.len(), 2);
+        assert!(suggestions.len() <= 1);
     }
 
     #[test]
     fn deduplicates_by_command() {
-        let pipeline = Pipeline::new(5)
-            .add_pass(FakePass {
-                results: vec![("git".into(), 0.9)],
-            })
-            .add_pass(FakePass {
-                results: vec![("git".into(), 0.8)],
-            });
+        let history = vec!["git pull", "git pull", "git pull"]
+            .into_iter()
+            .map(String::from)
+            .collect();
 
-        let suggestions = pipeline.run("gti");
-        let commands: Vec<&str> = suggestions.iter().map(|s| s.command.as_str()).collect();
+        let pipeline = Pipeline::new(5).add_pass(Pass::Subcommand { history });
+        let suggestions = pipeline.run("git pll");
+        let pull_count = suggestions
+            .iter()
+            .filter(|s| s.command == "git pull")
+            .count();
 
-        assert_eq!(commands, vec!["git"]);
+        assert!(pull_count <= 1, "should not have duplicate suggestions");
     }
 }

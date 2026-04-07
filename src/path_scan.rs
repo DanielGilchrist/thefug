@@ -1,4 +1,3 @@
-use crate::pipeline::SuggestionPass;
 use crate::suggestion::Suggestion;
 
 use strsim::jaro_winkler;
@@ -8,7 +7,7 @@ use std::fs;
 
 static MIN_SIMILARITY: f64 = 0.5;
 
-pub fn executables_on_path() -> Vec<String> {
+fn executables_on_path() -> Vec<String> {
     let path_var = match std::env::var("PATH") {
         Ok(p) => p,
         Err(_) => return Vec::new(),
@@ -35,19 +34,9 @@ pub fn executables_on_path() -> Vec<String> {
     executables
 }
 
-pub struct PathPass;
-
-impl PathPass {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl SuggestionPass for PathPass {
-    fn suggest(&self, command: &str) -> Vec<Suggestion> {
-        let executables = executables_on_path();
-        suggest_from_executables(command, &executables)
-    }
+pub fn suggest(command: &str) -> Vec<Suggestion> {
+    let executables = executables_on_path();
+    suggest_from_executables(command, &executables)
 }
 
 pub fn suggest_from_executables(command: &str, executables: &[String]) -> Vec<Suggestion> {
