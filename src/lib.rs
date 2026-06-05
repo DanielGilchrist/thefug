@@ -1,4 +1,6 @@
 pub mod attempt;
+pub mod completion_scan;
+pub mod completions;
 pub mod history;
 pub mod hypothesis;
 pub mod init;

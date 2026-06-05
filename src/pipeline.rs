@@ -1,4 +1,6 @@
 use crate::attempt::Attempt;
+use crate::completion_scan;
+use crate::completions::{Completions, NoCompletions};
 use crate::hypothesis::Hypothesis;
 use crate::parsed_command::ParsedCommand;
 use crate::path_scan;
@@ -8,19 +10,27 @@ use crate::suggestion::Suggestion;
 pub enum Pass {
     Path,
     Subcommand,
+    Completion,
 }
 
 impl Pass {
-    fn apply(&self, hypotheses: Vec<Hypothesis>, history: &[String]) -> Vec<Hypothesis> {
+    fn apply(
+        &self,
+        hypotheses: Vec<Hypothesis>,
+        history: &[String],
+        completions: &dyn Completions,
+    ) -> Vec<Hypothesis> {
         match self {
             Pass::Path => path_scan::apply(hypotheses),
             Pass::Subcommand => subcommand_scan::apply(hypotheses, history),
+            Pass::Completion => completion_scan::apply(hypotheses, completions),
         }
     }
 }
 
 pub struct Pipeline {
     passes: Vec<Pass>,
+    completions: Box<dyn Completions>,
     max_suggestions: usize,
 }
 
@@ -28,6 +38,7 @@ impl Pipeline {
     pub fn new(max_suggestions: usize) -> Self {
         Self {
             passes: Vec::new(),
+            completions: Box::new(NoCompletions),
             max_suggestions,
         }
     }
@@ -37,12 +48,17 @@ impl Pipeline {
         self
     }
 
+    pub fn with_completions(mut self, completions: Box<dyn Completions>) -> Self {
+        self.completions = completions;
+        self
+    }
+
     pub fn run(&self, attempt: &Attempt) -> Vec<Suggestion> {
         let parsed = ParsedCommand::parse(&attempt.failed_command);
         let initial = vec![Hypothesis::from_parsed(&parsed)];
 
         let hypotheses = self.passes.iter().fold(initial, |hypotheses, pass| {
-            pass.apply(hypotheses, &attempt.history)
+            pass.apply(hypotheses, &attempt.history, self.completions.as_ref())
         });
 
         let mut suggestions: Vec<Suggestion> = hypotheses

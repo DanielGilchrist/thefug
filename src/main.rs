@@ -1,5 +1,6 @@
 use thefug::{
     attempt::Attempt,
+    completions,
     history::History,
     init::Init,
     pipeline::{Pass, Pipeline},
@@ -107,11 +108,12 @@ fn run_simulate(command: String, history_path: Option<PathBuf>, print: bool) {
 }
 
 fn pipeline() -> Pipeline {
-    // Order matters: Path corrects the program first so Subcommand can look
-    // up history under the corrected program. Reversed, `gti pll` can never
-    // reach `git pull`.
+    // Order matters: Path corrects the program first so subsequent passes can look up under the corrected program.
+    // Completion uses authoritative sources (fish completions). Subcommand refines with user history.
     Pipeline::new(MAX_SUGGESTIONS)
+        .with_completions(completions::detect())
         .add_pass(Pass::Path)
+        .add_pass(Pass::Completion)
         .add_pass(Pass::Subcommand)
 }
 
