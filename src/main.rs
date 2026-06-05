@@ -1,15 +1,4 @@
-mod attempt;
-mod history;
-mod init;
-mod parsed_command;
-mod path_scan;
-mod pipeline;
-mod selector;
-mod shell;
-mod subcommand_scan;
-mod suggestion;
-
-use crate::{
+use thefug::{
     attempt::Attempt,
     history::History,
     init::Init,
