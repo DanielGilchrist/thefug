@@ -1,3 +1,4 @@
+use crate::parsed_command::ParsedCommand;
 use crate::suggestion::Suggestion;
 
 use strsim::jaro_winkler;
@@ -7,64 +8,51 @@ use std::fs;
 
 static MIN_SIMILARITY: f64 = 0.5;
 
-fn executables_on_path() -> Vec<String> {
-    let path_var = match std::env::var("PATH") {
-        Ok(p) => p,
-        Err(_) => return Vec::new(),
+fn executables_on_path() -> HashSet<String> {
+    let Ok(path_var) = std::env::var("PATH") else {
+        return HashSet::new();
     };
 
-    let mut seen = HashSet::new();
-    let mut executables = Vec::new();
-
-    for dir in std::env::split_paths(&path_var) {
-        let entries = match fs::read_dir(&dir) {
-            Ok(entries) => entries,
-            Err(_) => continue,
-        };
-
-        for entry in entries.filter_map(Result::ok) {
-            let file_name = entry.file_name().to_string_lossy().into_owned();
-
-            if seen.insert(file_name.clone()) {
-                executables.push(file_name);
-            }
-        }
-    }
-
-    executables
+    std::env::split_paths(&path_var)
+        .filter_map(|dir| fs::read_dir(&dir).ok())
+        .flat_map(|entries| entries.filter_map(Result::ok))
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect()
 }
 
-pub fn suggest(command: &str) -> Vec<Suggestion> {
+pub fn suggest(parsed: &ParsedCommand) -> Vec<Suggestion> {
     let executables = executables_on_path();
-    suggest_from_executables(command, &executables)
+    suggest_from_executables(parsed, &executables)
 }
 
-pub fn suggest_from_executables(command: &str, executables: &[String]) -> Vec<Suggestion> {
-    let program = command.split_whitespace().next().unwrap_or(command);
-    let rest: &str = command[program.len()..].trim_start();
-
-    // If the program already exists on PATH, there's no typo in the program name
-    if executables.iter().any(|e| e == program) {
+pub fn suggest_from_executables(
+    parsed: &ParsedCommand,
+    executables: &HashSet<String>,
+) -> Vec<Suggestion> {
+    if executables.contains(parsed.program) {
         return Vec::new();
     }
 
+    let rest = parsed.raw[parsed.program.len()..].trim_start();
+
     executables
         .iter()
-        .filter(|name| name.as_str() != program)
         .filter_map(|name| {
-            let similarity = jaro_winkler(program, name);
-
-            if similarity >= MIN_SIMILARITY {
-                let suggested_command = if rest.is_empty() {
-                    name.clone()
-                } else {
-                    format!("{name} {rest}")
-                };
-
-                Some(Suggestion::new(suggested_command, similarity as f32))
-            } else {
-                None
+            let similarity = jaro_winkler(parsed.program, name);
+            if similarity < MIN_SIMILARITY {
+                return None;
             }
+
+            let command = if rest.is_empty() {
+                name.clone()
+            } else {
+                format!("{name} {rest}")
+            };
+
+            Some(Suggestion {
+                command,
+                score: similarity as f32,
+            })
         })
         .collect()
 }
@@ -73,7 +61,7 @@ pub fn suggest_from_executables(command: &str, executables: &[String]) -> Vec<Su
 mod tests {
     use super::*;
 
-    fn executables() -> Vec<String> {
+    fn executables() -> HashSet<String> {
         [
             "git", "grep", "cat", "cargo", "curl", "ls", "rm", "cp", "mv", "docker", "node",
             "npm",
@@ -83,60 +71,58 @@ mod tests {
         .collect()
     }
 
+    fn suggest_commands(command: &str) -> Vec<String> {
+        let parsed = ParsedCommand::parse(command);
+        suggest_from_executables(&parsed, &executables())
+            .into_iter()
+            .map(|s| s.command)
+            .collect()
+    }
+
     #[test]
     fn matches_typo_in_program_name() {
-        let suggestions = suggest_from_executables("gti", &executables());
-        let commands: Vec<&str> = suggestions.iter().map(|s| s.command.as_str()).collect();
+        let commands = suggest_commands("gti");
 
-        assert!(commands.contains(&"git"), "expected 'git' in {commands:?}");
+        assert!(commands.contains(&"git".to_string()), "expected 'git' in {commands:?}");
     }
 
     #[test]
     fn preserves_arguments() {
-        let suggestions = suggest_from_executables("gti status", &executables());
-        let commands: Vec<&str> = suggestions.iter().map(|s| s.command.as_str()).collect();
+        let commands = suggest_commands("gti status");
 
         assert!(
-            commands.contains(&"git status"),
+            commands.contains(&"git status".to_string()),
             "expected 'git status' in {commands:?}"
         );
     }
 
     #[test]
     fn no_match_for_completely_different_input() {
-        let suggestions = suggest_from_executables("zzzzzzzzz", &executables());
+        let commands = suggest_commands("zzzzzzzzz");
 
-        assert!(suggestions.is_empty());
+        assert!(commands.is_empty());
     }
 
     #[test]
     fn does_not_suggest_exact_match() {
-        let suggestions = suggest_from_executables("git", &executables());
-        let commands: Vec<&str> = suggestions.iter().map(|s| s.command.as_str()).collect();
+        let commands = suggest_commands("git");
 
-        assert!(
-            !commands.contains(&"git"),
-            "should not suggest the exact same program"
-        );
+        assert!(commands.is_empty(), "should not suggest when program is on PATH");
     }
 
     #[test]
     fn matches_close_typo() {
-        let suggestions = suggest_from_executables("carg", &executables());
-        let commands: Vec<&str> = suggestions.iter().map(|s| s.command.as_str()).collect();
+        let commands = suggest_commands("carg");
 
-        assert!(
-            commands.contains(&"cargo"),
-            "expected 'cargo' in {commands:?}"
-        );
+        assert!(commands.contains(&"cargo".to_string()), "expected 'cargo' in {commands:?}");
     }
 
     #[test]
     fn skips_when_program_exists() {
-        let suggestions = suggest_from_executables("git pull", &executables());
+        let commands = suggest_commands("git pull");
 
         assert!(
-            suggestions.is_empty(),
+            commands.is_empty(),
             "should not suggest when program exists on PATH"
         );
     }

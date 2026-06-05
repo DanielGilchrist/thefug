@@ -1,5 +1,7 @@
+mod attempt;
 mod history;
 mod init;
+mod parsed_command;
 mod path_scan;
 mod pipeline;
 mod selector;
@@ -8,6 +10,7 @@ mod subcommand_scan;
 mod suggestion;
 
 use crate::{
+    attempt::Attempt,
     history::History,
     init::Init,
     pipeline::{Pass, Pipeline},
@@ -30,67 +33,41 @@ struct Options {
     initdev: bool,
 }
 
-fn extract_failed_command(history: Vec<String>) -> Option<(String, Vec<String>)> {
-    if history.len() < 2 {
-        return None;
-    }
-
-    // History is most-recent-first:
-    //   [0] = the command that invoked thefug (e.g. "fugd", "./scripts/build-dev.sh && fugd")
-    //   [1] = the failed command we want to correct
-    //   [2..] = older history
-    let invoker = history[0].clone();
-    let command = history[1].clone();
-
-    // Remove ALL copies of the invoker and failed command from history
-    // so passes don't see them as valid commands/subcommands
-    let cleaned_history = history
-        .into_iter()
-        .filter(|entry| entry != &invoker && entry != &command)
-        .collect();
-
-    Some((command, cleaned_history))
-}
-
 fn main() {
     let shell = Shell::default();
     let options = Options::parse();
 
     if options.init {
-        match Init::new(shell).init() {
-            Ok(_) => (),
-            Err(error) => eprintln!("{:?}", error),
+        if let Err(error) = Init::new(shell).init() {
+            eprintln!("{error}");
         }
-
         return;
     }
 
     if options.initdev {
         match Init::new(shell).init_dev() {
-            Ok(_) => println!("Successfully initialized dev environment!"),
-            Err(error) => eprintln!("{:?}", error),
+            Ok(()) => println!("Successfully initialized dev environment!"),
+            Err(error) => eprintln!("{error}"),
         }
-
         return;
     }
 
     let history = match History::new(shell).parse() {
         Ok(history) => history,
         Err(error) => {
-            eprintln!("{:?}", error);
+            eprintln!("{error}");
             return;
         }
     };
 
-    let (command, history) = match extract_failed_command(history) {
-        Some(result) => result,
-        None => return no_fugs_given(),
+    let Some(attempt) = Attempt::from_shell_history(history) else {
+        return no_fugs_given();
     };
 
     let pipeline = Pipeline::new(MAX_SUGGESTIONS)
-        .add_pass(Pass::Subcommand { history })
+        .add_pass(Pass::Subcommand)
         .add_pass(Pass::Path);
-    let suggestions = pipeline.run(&command);
+    let suggestions = pipeline.run(&attempt);
 
     if suggestions.is_empty() {
         return no_fugs_given();
@@ -101,7 +78,8 @@ fn main() {
         .map(|suggestion| suggestion.command)
         .collect::<Vec<String>>();
 
-    let Ok(selected_command) = Selector::new(command, suggested_commands).show() else {
+    let Ok(selected_command) = Selector::new(attempt.failed_command, suggested_commands).show()
+    else {
         return no_fugs_given();
     };
 
@@ -110,97 +88,4 @@ fn main() {
 
 fn no_fugs_given() {
     println!("{NO_SUGGESTION_NEEDED}");
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn extract_returns_none_for_short_history() {
-        assert!(extract_failed_command(vec![]).is_none());
-        assert!(extract_failed_command(vec!["fugd".into()]).is_none());
-    }
-
-    #[test]
-    fn extract_gets_correct_command() {
-        let history = vec![
-            "fugd".into(),
-            "git puuulllll".into(),
-            "git pull".into(),
-            "ls".into(),
-        ];
-        let (command, _) = extract_failed_command(history).unwrap();
-        assert_eq!(command, "git puuulllll");
-    }
-
-    #[test]
-    fn extract_removes_all_copies_of_failed_command() {
-        let history = vec![
-            "./scripts/build-dev.sh && fugd".into(),
-            "git puuulllll".into(),
-            "./scripts/build-dev.sh && fugd".into(),
-            "git puuulllll".into(),
-            "./scripts/build-dev.sh && fugd".into(),
-            "git puuulllll".into(),
-            "git pull".into(),
-            "git checkout main".into(),
-        ];
-        let (command, cleaned) = extract_failed_command(history).unwrap();
-
-        assert_eq!(command, "git puuulllll");
-        assert!(
-            !cleaned.contains(&"git puuulllll".to_string()),
-            "cleaned history should not contain the failed command: {cleaned:?}"
-        );
-        assert!(
-            !cleaned.contains(&"./scripts/build-dev.sh && fugd".to_string()),
-            "cleaned history should not contain the invoker: {cleaned:?}"
-        );
-        assert_eq!(cleaned, vec!["git pull", "git checkout main"]);
-    }
-
-    #[test]
-    fn end_to_end_repeated_typo_scenario() {
-        let mut history: Vec<String> = Vec::new();
-
-        history.push("./scripts/build-dev.sh && fugd".into());
-        history.push("git puuulllll".into());
-        history.push("./scripts/build-dev.sh && fugd".into());
-        history.push("git puuulllll".into());
-        history.push("./scripts/build-dev.sh && fugd".into());
-        history.push("git puuulllll".into());
-        history.push("fugd".into());
-        history.push("git pll".into());
-        history.push("./scripts/build-dev.sh".into());
-        history.push("cat README.md".into());
-
-        for _ in 0..32 {
-            history.push("git checkout main".into());
-        }
-        history.push("git pull".into());
-        history.push("git pull origin main".into());
-        history.push("git push".into());
-        history.push("git init".into());
-        history.push("git commit -m 'fix'".into());
-        history.push("git pu.ll".into());
-
-        let (command, cleaned_history) = extract_failed_command(history).unwrap();
-        assert_eq!(command, "git puuulllll");
-
-        let pipeline = Pipeline::new(MAX_SUGGESTIONS)
-            .add_pass(Pass::Subcommand { history: cleaned_history });
-        let suggestions = pipeline.run(&command);
-
-        let commands: Vec<&str> = suggestions.iter().map(|s| s.command.as_str()).collect();
-
-        assert!(
-            !suggestions.is_empty(),
-            "should produce suggestions for 'git puuulllll'"
-        );
-        assert!(
-            commands.contains(&"git pull"),
-            "expected 'git pull' in suggestions: {commands:?}"
-        );
-    }
 }
