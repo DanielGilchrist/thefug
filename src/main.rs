@@ -24,10 +24,8 @@ struct Options {
 
 #[derive(Subcommand, Debug)]
 enum Mode {
-    /// Install shell integration
+    /// Print shell integration to stdout (use with `eval "$(thefug init)"`)
     Init,
-    /// Install dev shell integration
-    InitDev,
     /// Run against explicit inputs instead of shell history
     Simulate {
         /// The failed command to suggest corrections for
@@ -49,7 +47,6 @@ fn main() {
 
     match options.mode {
         Some(Mode::Init) => run_init(shell),
-        Some(Mode::InitDev) => run_init_dev(shell),
         Some(Mode::Simulate {
             command,
             history,
@@ -60,15 +57,12 @@ fn main() {
 }
 
 fn run_init(shell: Shell) {
-    if let Err(error) = Init::new(shell).init() {
-        eprintln!("{error}");
-    }
-}
-
-fn run_init_dev(shell: Shell) {
-    match Init::new(shell).init_dev() {
-        Ok(()) => println!("Successfully initialized dev environment!"),
-        Err(error) => eprintln!("{error}"),
+    match Init::new(shell).script() {
+        Ok(script) => print!("{script}"),
+        Err(error) => {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
     }
 }
 

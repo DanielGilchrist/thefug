@@ -1,13 +1,35 @@
 use crate::shell::{self, Shell};
 
-use std::env::current_dir;
-use std::fs;
-use std::fs::File;
-use std::io::prelude::*;
-use std::os::unix::fs::PermissionsExt;
+use std::env;
+use std::fmt;
+use std::io;
+use std::path::Path;
 
 pub struct Init {
     shell: Shell,
+}
+
+#[derive(Debug)]
+pub enum Error {
+    UnsupportedShell,
+    Io(io::Error),
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::UnsupportedShell => write!(f, "unsupported shell"),
+            Error::Io(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
+
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Self {
+        Error::Io(e)
+    }
 }
 
 impl Init {
@@ -15,84 +37,126 @@ impl Init {
         Init { shell }
     }
 
-    pub fn init(&self) -> Result<(), std::io::Error> {
-        Ok(())
+    pub fn script(&self) -> Result<String, Error> {
+        let bin = env::current_exe()?;
+        self.script_for(&bin)
     }
 
-    pub fn init_dev(&self) -> Result<(), std::io::Error> {
-        let mut root = current_dir()?;
-        root.push("thefugd");
-
-        let script = self.determine_script();
-
-        let mut file = File::create(&root)?;
-        file.write_all(script.as_bytes())?;
-
-        let mut perms = fs::metadata(&root)?.permissions();
-        perms.set_mode(perms.mode() | 0o111);
-
-        fs::set_permissions(root, perms)?;
-
-        Ok(())
-    }
-
-    fn determine_script(&self) -> String {
+    fn script_for(&self, bin: &Path) -> Result<String, Error> {
+        let bin = bin.display();
         match self.shell.type_ {
-            shell::Type::Bash => self.bash_script(),
-            shell::Type::Fish => self.fish_script(),
-            shell::Type::Zsh => self.zsh_script(),
-            shell::Type::Unknown => unimplemented!(),
+            shell::Type::Bash => Ok(bash_script(&bin.to_string())),
+            shell::Type::Zsh => Ok(zsh_script(&bin.to_string())),
+            shell::Type::Fish => Ok(fish_script(&bin.to_string())),
+            shell::Type::Unknown => Err(Error::UnsupportedShell),
         }
     }
+}
 
-    fn bash_script(&self) -> String {
-        String::from(
-            "
-#!/bin/bash
+// `history -a` flushes the current session's history to disk so thefug can
+// read the failed command. `command` skips function/alias lookup.
+fn bash_script(bin: &str) -> String {
+    format!(
+        r#"fug() {{
+    history -a 2>/dev/null
+    local _fug_out
+    _fug_out=$(command "{bin}")
+    if [ "$_fug_out" = "No fugs given." ]; then
+        echo "$_fug_out"
+    else
+        echo "Running: $_fug_out"
+        eval "$_fug_out"
+    fi
+}}
+"#
+    )
+}
 
-command=$(thefugbindev)
+// `fc -W` is zsh's equivalent of bash's `history -a`.
+fn zsh_script(bin: &str) -> String {
+    format!(
+        r#"fug() {{
+    fc -W 2>/dev/null
+    local _fug_out
+    _fug_out=$(command "{bin}")
+    if [ "$_fug_out" = "No fugs given." ]; then
+        echo "$_fug_out"
+    else
+        echo "Running: $_fug_out"
+        eval "$_fug_out"
+    fi
+}}
+"#
+    )
+}
 
-if [ \"$command\" = \"No fugs given.\" ]; then
-  echo \"$command\"
-else
-  echo \"Running: $command\"
-  eval \"$command\"
-fi
-            ",
-        )
-    }
-
-    fn fish_script(&self) -> String {
-        String::from(
-            "
-#!/bin/fish
-
-set command (thefugbindev)
-
-if test \"$command\" = \"No fugs given.\"
-  echo \"$command\"
-else
-  echo \"Running: $command\"
-  eval \"$command\"
+// Fish auto-saves history; no explicit flush needed.
+fn fish_script(bin: &str) -> String {
+    format!(
+        r#"function fug
+    set -l _fug_out (command "{bin}")
+    if test "$_fug_out" = "No fugs given."
+        echo "$_fug_out"
+    else
+        echo "Running: $_fug_out"
+        eval "$_fug_out"
+    end
 end
-",
-        )
+"#
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn init(type_: shell::Type) -> Init {
+        Init::new(Shell { type_ })
     }
 
-    fn zsh_script(&self) -> String {
-        String::from(
-            "
-#!/bin/zsh
+    fn script_for(type_: shell::Type, bin: &str) -> Result<String, Error> {
+        init(type_).script_for(&PathBuf::from(bin))
+    }
 
-command=$(thefugbindev)
+    #[test]
+    fn bash_script_defines_fug_and_calls_absolute_path() {
+        let s = script_for(shell::Type::Bash, "/opt/homebrew/bin/thefug").unwrap();
 
-if [ \"$command\" = \"No fugs given.\" ]; then
-  echo \"$command\"
-else
-  echo \"Running: $command\"
-  eval \"$command\"
-fi
-            ",
-        )
+        assert!(s.contains("fug()"));
+        assert!(s.contains("/opt/homebrew/bin/thefug"));
+        assert!(s.contains("history -a"));
+    }
+
+    #[test]
+    fn zsh_script_uses_fc_w_to_flush_history() {
+        let s = script_for(shell::Type::Zsh, "/usr/local/bin/thefug").unwrap();
+
+        assert!(s.contains("fug()"));
+        assert!(s.contains("/usr/local/bin/thefug"));
+        assert!(s.contains("fc -W"));
+    }
+
+    #[test]
+    fn fish_script_uses_function_syntax() {
+        let s = script_for(shell::Type::Fish, "/usr/local/bin/thefug").unwrap();
+
+        assert!(s.contains("function fug"));
+        assert!(s.contains("/usr/local/bin/thefug"));
+        assert!(s.contains("end"));
+    }
+
+    #[test]
+    fn unknown_shell_returns_error() {
+        let result = script_for(shell::Type::Unknown, "/whatever");
+
+        assert!(matches!(result, Err(Error::UnsupportedShell)));
+    }
+
+    #[test]
+    fn bash_script_handles_no_fugs_response() {
+        let s = script_for(shell::Type::Bash, "/x").unwrap();
+
+        assert!(s.contains("No fugs given."));
     }
 }
