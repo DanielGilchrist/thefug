@@ -113,9 +113,12 @@ fn run_simulate(command: String, history_path: Option<PathBuf>, print: bool) {
 }
 
 fn pipeline() -> Pipeline {
+    // Order matters: Path corrects the program first so Subcommand can look
+    // up history under the corrected program. Reversed, `gti pll` can never
+    // reach `git pull`.
     Pipeline::new(MAX_SUGGESTIONS)
-        .add_pass(Pass::Subcommand)
         .add_pass(Pass::Path)
+        .add_pass(Pass::Subcommand)
 }
 
 fn read_history_file(path: &PathBuf) -> std::io::Result<Vec<String>> {

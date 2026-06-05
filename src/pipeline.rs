@@ -1,4 +1,5 @@
 use crate::attempt::Attempt;
+use crate::hypothesis::Hypothesis;
 use crate::parsed_command::ParsedCommand;
 use crate::path_scan;
 use crate::subcommand_scan;
@@ -10,10 +11,10 @@ pub enum Pass {
 }
 
 impl Pass {
-    fn suggest(&self, parsed: &ParsedCommand, history: &[String]) -> Vec<Suggestion> {
+    fn apply(&self, hypotheses: Vec<Hypothesis>, history: &[String]) -> Vec<Hypothesis> {
         match self {
-            Pass::Path => path_scan::suggest(parsed),
-            Pass::Subcommand => subcommand_scan::suggest(parsed, history),
+            Pass::Path => path_scan::apply(hypotheses),
+            Pass::Subcommand => subcommand_scan::apply(hypotheses, history),
         }
     }
 }
@@ -38,12 +39,23 @@ impl Pipeline {
 
     pub fn run(&self, attempt: &Attempt) -> Vec<Suggestion> {
         let parsed = ParsedCommand::parse(&attempt.failed_command);
+        let initial = vec![Hypothesis::from_parsed(&parsed)];
 
-        let mut suggestions = self
+        let hypotheses = self
             .passes
             .iter()
-            .flat_map(|pass| pass.suggest(&parsed, &attempt.history))
-            .collect::<Vec<_>>();
+            .fold(initial, |hypotheses, pass| {
+                pass.apply(hypotheses, &attempt.history)
+            });
+
+        let mut suggestions: Vec<Suggestion> = hypotheses
+            .into_iter()
+            .filter(|h| !h.matches_original(&parsed))
+            .map(|h| Suggestion {
+                command: h.to_command(),
+                score: h.score,
+            })
+            .collect();
 
         suggestions.sort_by(|a, b| {
             b.score
@@ -118,5 +130,16 @@ mod tests {
         let pull_count = suggestions.iter().filter(|s| s.command == "git pull").count();
 
         assert!(pull_count <= 1, "should not have duplicate suggestions");
+    }
+
+    #[test]
+    fn drops_untransformed_hypotheses() {
+        let pipeline = Pipeline::new(5).add_pass(Pass::Subcommand);
+        let suggestions = pipeline.run(&attempt(
+            "git status",
+            vec!["git status", "git status", "git status"],
+        ));
+
+        assert!(suggestions.is_empty(), "no-op pass should produce no suggestions");
     }
 }

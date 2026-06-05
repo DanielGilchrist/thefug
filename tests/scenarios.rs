@@ -32,8 +32,8 @@ fn load_fixture(name: &str) -> Vec<String> {
 fn run(failed_command: &str, fixture: &str) -> Vec<Suggestion> {
     let attempt = Attempt::from_inputs(failed_command.to_string(), load_fixture(fixture));
     Pipeline::new(MAX_SUGGESTIONS)
-        .add_pass(Pass::Subcommand)
         .add_pass(Pass::Path)
+        .add_pass(Pass::Subcommand)
         .run(&attempt)
 }
 
@@ -94,6 +94,17 @@ fn frequent_correction_outranks_rare_one() {
         suggestions[0].command, "cargo test",
         "higher-frequency candidate should rank first; got {:?}",
         commands(&suggestions)
+    );
+}
+
+#[test]
+fn composes_path_and_subcommand_passes_for_double_typo() {
+    let suggestions = run("gti pll", "git_repeated_typo.txt");
+    let commands = commands(&suggestions);
+
+    assert!(
+        commands.contains(&"git pull"),
+        "double-typo should resolve to 'git pull' via Path + Subcommand composition: {commands:?}"
     );
 }
 

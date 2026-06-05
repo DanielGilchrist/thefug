@@ -1,5 +1,4 @@
-use crate::parsed_command::ParsedCommand;
-use crate::suggestion::Suggestion;
+use crate::hypothesis::Hypothesis;
 
 use strsim::jaro_winkler;
 
@@ -20,46 +19,53 @@ fn executables_on_path() -> HashSet<String> {
         .collect()
 }
 
-pub fn suggest(parsed: &ParsedCommand) -> Vec<Suggestion> {
+pub fn apply(hypotheses: Vec<Hypothesis>) -> Vec<Hypothesis> {
     let executables = executables_on_path();
-    suggest_from_executables(parsed, &executables)
+    apply_with_executables(hypotheses, &executables)
 }
 
-pub fn suggest_from_executables(
-    parsed: &ParsedCommand,
+pub fn apply_with_executables(
+    hypotheses: Vec<Hypothesis>,
     executables: &HashSet<String>,
-) -> Vec<Suggestion> {
-    if executables.contains(parsed.program) {
-        return Vec::new();
+) -> Vec<Hypothesis> {
+    hypotheses
+        .into_iter()
+        .flat_map(|h| refine_one(h, executables))
+        .collect()
+}
+
+fn refine_one(hypothesis: Hypothesis, executables: &HashSet<String>) -> Vec<Hypothesis> {
+    if executables.contains(&hypothesis.program) {
+        return vec![hypothesis];
     }
 
-    let rest = parsed.raw[parsed.program.len()..].trim_start();
-
-    executables
+    let branches: Vec<Hypothesis> = executables
         .iter()
         .filter_map(|name| {
-            let similarity = jaro_winkler(parsed.program, name);
+            let similarity = jaro_winkler(&hypothesis.program, name);
             if similarity < MIN_SIMILARITY {
                 return None;
             }
-
-            let command = if rest.is_empty() {
-                name.clone()
-            } else {
-                format!("{name} {rest}")
-            };
-
-            Some(Suggestion {
-                command,
-                score: similarity as f32,
+            Some(Hypothesis {
+                program: name.clone(),
+                subcommand: hypothesis.subcommand.clone(),
+                args: hypothesis.args.clone(),
+                score: hypothesis.score * similarity as f32,
             })
         })
-        .collect()
+        .collect();
+
+    if branches.is_empty() {
+        vec![hypothesis]
+    } else {
+        branches
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parsed_command::ParsedCommand;
 
     fn executables() -> HashSet<String> {
         [
@@ -71,59 +77,68 @@ mod tests {
         .collect()
     }
 
-    fn suggest_commands(command: &str) -> Vec<String> {
-        let parsed = ParsedCommand::parse(command);
-        suggest_from_executables(&parsed, &executables())
-            .into_iter()
-            .map(|s| s.command)
-            .collect()
+    fn refine(raw: &str) -> Vec<Hypothesis> {
+        let parsed = ParsedCommand::parse(raw);
+        let initial = Hypothesis::from_parsed(&parsed);
+        apply_with_executables(vec![initial], &executables())
+    }
+
+    fn commands_of(hypotheses: &[Hypothesis]) -> Vec<String> {
+        hypotheses.iter().map(Hypothesis::to_command).collect()
     }
 
     #[test]
-    fn matches_typo_in_program_name() {
-        let commands = suggest_commands("gti");
+    fn passes_through_when_program_on_path() {
+        let result = refine("git pull");
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].program, "git");
+        assert_eq!(result[0].score, 1.0, "pass-through must not change score");
+    }
+
+    #[test]
+    fn branches_when_program_has_close_match() {
+        let result = refine("gti");
+        let commands = commands_of(&result);
 
         assert!(commands.contains(&"git".to_string()), "expected 'git' in {commands:?}");
+        assert!(!commands.contains(&"gti".to_string()));
     }
 
     #[test]
-    fn preserves_arguments() {
-        let commands = suggest_commands("gti status");
+    fn preserves_subcommand_and_args_when_branching() {
+        let result = refine("gti status -v");
 
-        assert!(
-            commands.contains(&"git status".to_string()),
-            "expected 'git status' in {commands:?}"
-        );
+        let git = result.iter().find(|h| h.program == "git").expect("git branch");
+        assert_eq!(git.subcommand.as_deref(), Some("status"));
+        assert_eq!(git.args, "-v");
     }
 
     #[test]
-    fn no_match_for_completely_different_input() {
-        let commands = suggest_commands("zzzzzzzzz");
+    fn score_multiplies_by_program_similarity() {
+        let result = refine("gti");
+        let git = result.iter().find(|h| h.program == "git").expect("git branch");
 
-        assert!(commands.is_empty());
+        assert!(git.score < 1.0, "score should decay below 1.0");
+        assert!(git.score > 0.5, "but stay above MIN_SIMILARITY");
     }
 
     #[test]
-    fn does_not_suggest_exact_match() {
-        let commands = suggest_commands("git");
+    fn passes_through_when_no_matches() {
+        let result = refine("zzzzzzzzz arg");
 
-        assert!(commands.is_empty(), "should not suggest when program is on PATH");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].program, "zzzzzzzzz");
+        assert_eq!(result[0].score, 1.0);
     }
 
     #[test]
-    fn matches_close_typo() {
-        let commands = suggest_commands("carg");
+    fn empty_input_passes_through_unchanged() {
+        let parsed = ParsedCommand::parse("");
+        let initial = Hypothesis::from_parsed(&parsed);
+        let result = apply_with_executables(vec![initial], &executables());
 
-        assert!(commands.contains(&"cargo".to_string()), "expected 'cargo' in {commands:?}");
-    }
-
-    #[test]
-    fn skips_when_program_exists() {
-        let commands = suggest_commands("git pull");
-
-        assert!(
-            commands.is_empty(),
-            "should not suggest when program exists on PATH"
-        );
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].program, "");
     }
 }

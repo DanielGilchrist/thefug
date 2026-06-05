@@ -1,5 +1,6 @@
 pub mod attempt;
 pub mod history;
+pub mod hypothesis;
 pub mod init;
 pub mod parsed_command;
 pub mod path_scan;

@@ -1,18 +1,62 @@
-use crate::parsed_command::ParsedCommand;
-use crate::suggestion::Suggestion;
+use crate::hypothesis::Hypothesis;
 
 use strsim::jaro_winkler;
 
 use std::collections::HashMap;
 
 static MIN_SIMILARITY: f64 = 0.5;
-// At or above this, a subcommand is treated as established and not corrected.
+// At or above this, a subcommand is treated as established and the
+// hypothesis is passed through unchanged.
 static FREQUENT_SUBCOMMAND_THRESHOLD: usize = 2;
 // Thresholds for the garbage filter: a freq-1 candidate is dropped if it's
 // at least GARBAGE_SIMILARITY similar to another candidate with at least
 // GARBAGE_NEIGHBOUR_FREQ occurrences (i.e. likely a past typo of it).
 static GARBAGE_NEIGHBOUR_FREQ: usize = 5;
 static GARBAGE_SIMILARITY: f64 = 0.8;
+
+pub fn apply(hypotheses: Vec<Hypothesis>, history: &[String]) -> Vec<Hypothesis> {
+    hypotheses
+        .into_iter()
+        .flat_map(|h| refine_one(h, history))
+        .collect()
+}
+
+fn refine_one(hypothesis: Hypothesis, history: &[String]) -> Vec<Hypothesis> {
+    let Some(subcommand) = hypothesis.subcommand.clone() else {
+        return vec![hypothesis];
+    };
+
+    let frequencies = subcommand_frequencies(history, &hypothesis.program);
+
+    if frequencies.get(&subcommand).copied().unwrap_or(0) >= FREQUENT_SUBCOMMAND_THRESHOLD {
+        return vec![hypothesis];
+    }
+
+    let branches: Vec<Hypothesis> = frequencies
+        .iter()
+        .filter(|(candidate, _)| candidate.as_str() != subcommand)
+        .filter(|(candidate, freq)| !is_likely_garbage(candidate, **freq, &frequencies))
+        .filter_map(|(candidate, freq)| {
+            let similarity = jaro_winkler(&subcommand, candidate);
+            if similarity < MIN_SIMILARITY {
+                return None;
+            }
+            let freq_boost = (1.0 + *freq as f64).log2();
+            Some(Hypothesis {
+                program: hypothesis.program.clone(),
+                subcommand: Some(candidate.clone()),
+                args: hypothesis.args.clone(),
+                score: hypothesis.score * (similarity * freq_boost) as f32,
+            })
+        })
+        .collect();
+
+    if branches.is_empty() {
+        vec![hypothesis]
+    } else {
+        branches
+    }
+}
 
 fn subcommand_frequencies(history: &[String], program: &str) -> HashMap<String, usize> {
     let mut frequencies: HashMap<String, usize> = HashMap::new();
@@ -45,45 +89,10 @@ fn is_likely_garbage(candidate: &str, freq: usize, frequencies: &HashMap<String,
     })
 }
 
-pub fn suggest(parsed: &ParsedCommand, history: &[String]) -> Vec<Suggestion> {
-    let Some(subcommand) = parsed.subcommand else {
-        return Vec::new();
-    };
-
-    let frequencies = subcommand_frequencies(history, parsed.program);
-
-    if frequencies.get(subcommand).copied().unwrap_or(0) >= FREQUENT_SUBCOMMAND_THRESHOLD {
-        return Vec::new();
-    }
-
-    frequencies
-        .iter()
-        .filter(|(candidate, _)| candidate.as_str() != subcommand)
-        .filter(|(candidate, freq)| !is_likely_garbage(candidate, **freq, &frequencies))
-        .filter_map(|(candidate, freq)| {
-            let similarity = jaro_winkler(subcommand, candidate);
-            if similarity < MIN_SIMILARITY {
-                return None;
-            }
-
-            let score = similarity * (1.0 + *freq as f64).log2();
-            let command = if parsed.args.is_empty() {
-                format!("{} {}", parsed.program, candidate)
-            } else {
-                format!("{} {} {}", parsed.program, candidate, parsed.args)
-            };
-
-            Some(Suggestion {
-                command,
-                score: score as f32,
-            })
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parsed_command::ParsedCommand;
 
     fn history() -> Vec<String> {
         [
@@ -100,7 +109,7 @@ mod tests {
             "git commit -m 'update'",
             "git log",
             "git log",
-            "git pll",
+            "git pll", // past typo (freq 1)
             "cargo build",
             "cargo build",
             "cargo test",
@@ -113,24 +122,26 @@ mod tests {
         .collect()
     }
 
-    fn suggest_commands(command: &str, history: &[String]) -> Vec<String> {
-        let parsed = ParsedCommand::parse(command);
-        suggest(&parsed, history)
-            .into_iter()
-            .map(|s| s.command)
-            .collect()
+    fn refine(raw: &str, history: &[String]) -> Vec<Hypothesis> {
+        let parsed = ParsedCommand::parse(raw);
+        let initial = Hypothesis::from_parsed(&parsed);
+        apply(vec![initial], history)
+    }
+
+    fn commands_of(hypotheses: &[Hypothesis]) -> Vec<String> {
+        hypotheses.iter().map(Hypothesis::to_command).collect()
     }
 
     #[test]
     fn corrects_subcommand_typo() {
-        let commands = suggest_commands("git pll", &history());
+        let commands = commands_of(&refine("git pll", &history()));
 
         assert!(commands.contains(&"git pull".to_string()), "expected 'git pull' in {commands:?}");
     }
 
     #[test]
     fn preserves_trailing_arguments() {
-        let commands = suggest_commands("git pll origin main", &history());
+        let commands = commands_of(&refine("git pll origin main", &history()));
 
         assert!(
             commands.contains(&"git pull origin main".to_string()),
@@ -139,17 +150,21 @@ mod tests {
     }
 
     #[test]
-    fn skips_when_no_subcommand() {
-        let commands = suggest_commands("git", &history());
+    fn passes_through_when_no_subcommand() {
+        let result = refine("git", &history());
 
-        assert!(commands.is_empty());
+        assert_eq!(result.len(), 1);
+        assert!(result[0].subcommand.is_none());
+        assert_eq!(result[0].score, 1.0);
     }
 
     #[test]
-    fn skips_when_subcommand_is_frequent() {
-        let commands = suggest_commands("git pull", &history());
+    fn passes_through_when_subcommand_is_established() {
+        let result = refine("git pull", &history());
 
-        assert!(commands.is_empty(), "should not suggest when subcommand is already frequent");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].subcommand.as_deref(), Some("pull"));
+        assert_eq!(result[0].score, 1.0, "established subcommand must not change score");
     }
 
     #[test]
@@ -158,8 +173,7 @@ mod tests {
         for _ in 0..5 {
             h.push("git pull".to_string());
         }
-
-        let commands = suggest_commands("git plll", &h);
+        let commands = commands_of(&refine("git plll", &h));
 
         assert!(
             !commands.contains(&"git pll".to_string()),
@@ -168,15 +182,17 @@ mod tests {
     }
 
     #[test]
-    fn no_match_for_unrelated_subcommand() {
-        let commands = suggest_commands("git zzzzz", &history());
+    fn passes_through_when_no_candidates() {
+        let result = refine("git zzzzz", &history());
 
-        assert!(commands.is_empty());
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].subcommand.as_deref(), Some("zzzzz"));
+        assert_eq!(result[0].score, 1.0);
     }
 
     #[test]
     fn works_for_other_programs() {
-        let commands = suggest_commands("cargo tset", &history());
+        let commands = commands_of(&refine("cargo tset", &history()));
 
         assert!(
             commands.contains(&"cargo test".to_string()),
@@ -187,7 +203,7 @@ mod tests {
     #[test]
     fn falls_back_to_low_frequency_when_no_frequent_candidates() {
         let history = vec!["mycli foo".to_string(), "mycli bar".to_string()];
-        let commands = suggest_commands("mycli fo", &history);
+        let commands = commands_of(&refine("mycli fo", &history));
 
         assert!(
             commands.contains(&"mycli foo".to_string()),
@@ -196,32 +212,17 @@ mod tests {
     }
 
     #[test]
-    fn no_suggestions_for_program_not_in_history() {
-        let commands = suggest_commands("unknown cmd", &history());
+    fn passes_through_when_program_not_in_history() {
+        let result = refine("unknown cmd", &history());
 
-        assert!(commands.is_empty());
-    }
-
-    #[test]
-    fn works_with_deduplicated_history() {
-        let history = vec![
-            "git pull".to_string(),
-            "git push".to_string(),
-            "git status".to_string(),
-            "git commit -m 'fix'".to_string(),
-            "git log".to_string(),
-        ];
-        let commands = suggest_commands("git pll", &history);
-
-        assert!(
-            commands.contains(&"git pull".to_string()),
-            "should still suggest 'git pull' even with all-freq-1 history: {commands:?}"
-        );
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].program, "unknown");
+        assert_eq!(result[0].subcommand.as_deref(), Some("cmd"));
     }
 
     #[test]
     fn corrects_very_mangled_typo() {
-        let commands = suggest_commands("git puuulllll", &history());
+        let commands = commands_of(&refine("git puuulllll", &history()));
 
         assert!(commands.contains(&"git pull".to_string()), "expected 'git pull' in {commands:?}");
     }
@@ -234,13 +235,13 @@ mod tests {
             "git pull".to_string(),
             "git pul".to_string(),
         ];
-        let parsed = ParsedCommand::parse("git pll");
-        let mut suggestions = suggest(&parsed, &history);
-        suggestions.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+        let mut result = refine("git pll", &history);
+        result.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
 
-        assert!(suggestions.len() >= 2);
+        assert!(result.len() >= 2);
         assert_eq!(
-            suggestions[0].command, "git pull",
+            result[0].to_command(),
+            "git pull",
             "higher frequency candidate should rank first"
         );
     }
@@ -253,8 +254,7 @@ mod tests {
         }
         history.push("git pull".to_string());
         history.push("git pll".to_string());
-
-        let commands = suggest_commands("git puuulllll", &history);
+        let commands = commands_of(&refine("git puuulllll", &history));
 
         assert!(
             commands.contains(&"git pull".to_string()),
