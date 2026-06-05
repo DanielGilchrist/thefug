@@ -1,0 +1,23 @@
+git pll
+git checkout main
+git checkout main
+git checkout main
+git checkout main
+git checkout main
+git checkout main
+git checkout main
+git checkout main
+git checkout main
+git checkout main
+git checkout main
+git checkout main
+git checkout main
+git checkout main
+git checkout main
+git checkout main
+git pull
+git pull origin main
+git push
+git init
+git commit -m 'fix'
+git pu.ll

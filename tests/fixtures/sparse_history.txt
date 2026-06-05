@@ -1,0 +1,5 @@
+git pull
+git push
+git status
+git log
+git checkout main
