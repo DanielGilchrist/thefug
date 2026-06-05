@@ -91,7 +91,8 @@ fn frequent_correction_outranks_rare_one() {
 
     assert!(!suggestions.is_empty(), "expected at least one suggestion");
     assert_eq!(
-        suggestions[0].command, "cargo test",
+        suggestions[0].command,
+        "cargo test",
         "higher-frequency candidate should rank first; got {:?}",
         commands(&suggestions)
     );

@@ -291,10 +291,7 @@ mod tests {
         fn preserves_semicolons_inside_command() {
             let input = ": 1679749063:0;git log; git status\n";
 
-            assert_eq!(
-                parse(ZshParser, input, 1000),
-                vec!["git log; git status"]
-            );
+            assert_eq!(parse(ZshParser, input, 1000), vec!["git log; git status"]);
         }
 
         #[test]

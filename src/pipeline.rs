@@ -41,12 +41,9 @@ impl Pipeline {
         let parsed = ParsedCommand::parse(&attempt.failed_command);
         let initial = vec![Hypothesis::from_parsed(&parsed)];
 
-        let hypotheses = self
-            .passes
-            .iter()
-            .fold(initial, |hypotheses, pass| {
-                pass.apply(hypotheses, &attempt.history)
-            });
+        let hypotheses = self.passes.iter().fold(initial, |hypotheses, pass| {
+            pass.apply(hypotheses, &attempt.history)
+        });
 
         let mut suggestions: Vec<Suggestion> = hypotheses
             .into_iter()
@@ -127,7 +124,10 @@ mod tests {
             "git pll",
             vec!["git pull", "git pull", "git pull"],
         ));
-        let pull_count = suggestions.iter().filter(|s| s.command == "git pull").count();
+        let pull_count = suggestions
+            .iter()
+            .filter(|s| s.command == "git pull")
+            .count();
 
         assert!(pull_count <= 1, "should not have duplicate suggestions");
     }
@@ -140,6 +140,9 @@ mod tests {
             vec!["git status", "git status", "git status"],
         ));
 
-        assert!(suggestions.is_empty(), "no-op pass should produce no suggestions");
+        assert!(
+            suggestions.is_empty(),
+            "no-op pass should produce no suggestions"
+        );
     }
 }

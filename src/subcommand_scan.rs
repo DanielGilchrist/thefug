@@ -136,7 +136,10 @@ mod tests {
     fn corrects_subcommand_typo() {
         let commands = commands_of(&refine("git pll", &history()));
 
-        assert!(commands.contains(&"git pull".to_string()), "expected 'git pull' in {commands:?}");
+        assert!(
+            commands.contains(&"git pull".to_string()),
+            "expected 'git pull' in {commands:?}"
+        );
     }
 
     #[test]
@@ -164,7 +167,10 @@ mod tests {
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].subcommand.as_deref(), Some("pull"));
-        assert_eq!(result[0].score, 1.0, "established subcommand must not change score");
+        assert_eq!(
+            result[0].score, 1.0,
+            "established subcommand must not change score"
+        );
     }
 
     #[test]
@@ -224,7 +230,10 @@ mod tests {
     fn corrects_very_mangled_typo() {
         let commands = commands_of(&refine("git puuulllll", &history()));
 
-        assert!(commands.contains(&"git pull".to_string()), "expected 'git pull' in {commands:?}");
+        assert!(
+            commands.contains(&"git pull".to_string()),
+            "expected 'git pull' in {commands:?}"
+        );
     }
 
     #[test]

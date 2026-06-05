@@ -96,10 +96,8 @@ mod tests {
 
     #[test]
     fn from_inputs_does_not_filter() {
-        let attempt = Attempt::from_inputs(
-            "git pll".into(),
-            vec!["git pll".into(), "git pull".into()],
-        );
+        let attempt =
+            Attempt::from_inputs("git pll".into(), vec!["git pll".into(), "git pull".into()]);
 
         assert_eq!(attempt.history, vec!["git pll", "git pull"]);
     }

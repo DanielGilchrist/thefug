@@ -69,8 +69,7 @@ mod tests {
 
     fn executables() -> HashSet<String> {
         [
-            "git", "grep", "cat", "cargo", "curl", "ls", "rm", "cp", "mv", "docker", "node",
-            "npm",
+            "git", "grep", "cat", "cargo", "curl", "ls", "rm", "cp", "mv", "docker", "node", "npm",
         ]
         .into_iter()
         .map(String::from)
@@ -101,7 +100,10 @@ mod tests {
         let result = refine("gti");
         let commands = commands_of(&result);
 
-        assert!(commands.contains(&"git".to_string()), "expected 'git' in {commands:?}");
+        assert!(
+            commands.contains(&"git".to_string()),
+            "expected 'git' in {commands:?}"
+        );
         assert!(!commands.contains(&"gti".to_string()));
     }
 
@@ -109,7 +111,10 @@ mod tests {
     fn preserves_subcommand_and_args_when_branching() {
         let result = refine("gti status -v");
 
-        let git = result.iter().find(|h| h.program == "git").expect("git branch");
+        let git = result
+            .iter()
+            .find(|h| h.program == "git")
+            .expect("git branch");
         assert_eq!(git.subcommand.as_deref(), Some("status"));
         assert_eq!(git.args, "-v");
     }
@@ -117,7 +122,10 @@ mod tests {
     #[test]
     fn score_multiplies_by_program_similarity() {
         let result = refine("gti");
-        let git = result.iter().find(|h| h.program == "git").expect("git branch");
+        let git = result
+            .iter()
+            .find(|h| h.program == "git")
+            .expect("git branch");
 
         assert!(git.score < 1.0, "score should decay below 1.0");
         assert!(git.score > 0.5, "but stay above MIN_SIMILARITY");
