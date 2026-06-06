@@ -1,11 +1,11 @@
 use crate::hypothesis::Hypothesis;
-
-use strsim::jaro_winkler;
+use crate::similarity;
 
 use std::collections::HashSet;
 use std::fs;
 
 static MIN_SIMILARITY: f64 = 0.5;
+static MAX_BRANCHES: usize = 25;
 
 fn executables_on_path() -> HashSet<String> {
     let Ok(path_var) = std::env::var("PATH") else {
@@ -39,19 +39,13 @@ fn refine_one(hypothesis: Hypothesis, executables: &HashSet<String>) -> Vec<Hypo
         return vec![hypothesis];
     }
 
-    let branches: Vec<Hypothesis> = executables
-        .iter()
-        .filter_map(|name| {
-            let similarity = jaro_winkler(&hypothesis.program, name);
-            if similarity < MIN_SIMILARITY {
-                return None;
-            }
-            Some(Hypothesis {
-                program: name.clone(),
-                subcommand: hypothesis.subcommand.clone(),
-                args: hypothesis.args.clone(),
-                score: hypothesis.score * similarity as f32,
-            })
+    let branches: Vec<Hypothesis> = closest_executables(&hypothesis.program, executables)
+        .into_iter()
+        .map(|(similarity, name)| Hypothesis {
+            program: name.clone(),
+            subcommand: hypothesis.subcommand.clone(),
+            args: hypothesis.args.clone(),
+            score: hypothesis.score * similarity as f32,
         })
         .collect();
 
@@ -62,6 +56,34 @@ fn refine_one(hypothesis: Hypothesis, executables: &HashSet<String>) -> Vec<Hypo
     }
 }
 
+fn closest_executables<'a>(
+    program: &str,
+    executables: &'a HashSet<String>,
+) -> Vec<(f64, &'a String)> {
+    let mut matches: Vec<(f64, &String)> = executables
+        .iter()
+        .filter_map(|name| {
+            let similarity = similarity::program(program, name);
+            (similarity >= MIN_SIMILARITY).then_some((similarity, name))
+        })
+        .collect();
+
+    matches.sort_by(by_similarity_descending_then_name);
+    matches.truncate(MAX_BRANCHES);
+
+    matches
+}
+
+fn by_similarity_descending_then_name(
+    (a_similarity, a_name): &(f64, &String),
+    (b_similarity, b_name): &(f64, &String),
+) -> std::cmp::Ordering {
+    b_similarity
+        .partial_cmp(a_similarity)
+        .unwrap_or(std::cmp::Ordering::Equal)
+        .then_with(|| a_name.cmp(b_name))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -69,7 +91,21 @@ mod tests {
 
     fn executables() -> HashSet<String> {
         [
-            "git", "grep", "cat", "cargo", "curl", "ls", "rm", "cp", "mv", "docker", "node", "npm",
+            "git",
+            "grep",
+            "cat",
+            "cargo",
+            "curl",
+            "ls",
+            "rm",
+            "cp",
+            "mv",
+            "docker",
+            "node",
+            "npm",
+            "gtail",
+            "gtimeout",
+            "gsettings",
         ]
         .into_iter()
         .map(String::from)
@@ -115,7 +151,7 @@ mod tests {
             .iter()
             .find(|h| h.program == "git")
             .expect("git branch");
-        assert_eq!(git.subcommand.as_deref(), Some("status"));
+        assert_eq!(git.subcommand.value(), Some("status"));
         assert_eq!(git.args, "-v");
     }
 
@@ -129,6 +165,29 @@ mod tests {
 
         assert!(git.score < 1.0, "score should decay below 1.0");
         assert!(git.score > 0.5, "but stay above MIN_SIMILARITY");
+    }
+
+    #[test]
+    fn transposition_outranks_shared_prefix_executables() {
+        let mut result = refine("gti");
+        result.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+
+        assert_eq!(
+            result[0].program,
+            "git",
+            "'git' should rank above 'gtail'/'gtimeout'/'gsettings': {:?}",
+            commands_of(&result)
+        );
+    }
+
+    #[test]
+    fn caps_branch_count() {
+        let many: HashSet<String> = (0..100).map(|i| format!("gt{i}")).collect();
+        let parsed = ParsedCommand::parse("gt1234");
+        let initial = Hypothesis::from_parsed(&parsed);
+        let result = apply_with_executables(vec![initial], &many);
+
+        assert!(result.len() <= MAX_BRANCHES);
     }
 
     #[test]

@@ -1,0 +1,20 @@
+git push
+git push origin main
+git push
+git push --force-with-lease
+git push
+git push origin feature
+git push
+git push
+git push origin main
+git push
+git push
+git push --tags
+git pull
+git push
+git push origin main
+git push
+git pull
+git push
+git push
+git push origin feature

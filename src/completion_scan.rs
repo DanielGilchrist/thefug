@@ -1,7 +1,6 @@
 use crate::completions::Completions;
-use crate::hypothesis::Hypothesis;
-
-use strsim::jaro_winkler;
+use crate::hypothesis::{Hypothesis, Subcommand};
+use crate::similarity;
 
 use std::collections::HashMap;
 
@@ -15,7 +14,7 @@ static VALIDATION_BOOST: f32 = 2.0;
 pub fn apply(hypotheses: Vec<Hypothesis>, completions: &dyn Completions) -> Vec<Hypothesis> {
     let mut programs: Vec<&str> = hypotheses
         .iter()
-        .filter(|h| h.subcommand.is_some())
+        .filter(|h| matches!(h.subcommand, Subcommand::Original(_)))
         .map(|h| h.program.as_str())
         .collect();
 
@@ -31,7 +30,7 @@ pub fn apply(hypotheses: Vec<Hypothesis>, completions: &dyn Completions) -> Vec<
 }
 
 fn refine_one(hypothesis: Hypothesis, lookup: &HashMap<String, Vec<String>>) -> Vec<Hypothesis> {
-    let Some(subcommand) = hypothesis.subcommand.clone() else {
+    let Subcommand::Original(subcommand) = hypothesis.subcommand.clone() else {
         return vec![hypothesis];
     };
 
@@ -46,6 +45,7 @@ fn refine_one(hypothesis: Hypothesis, lookup: &HashMap<String, Vec<String>>) -> 
     if candidates.iter().any(|c| c == &subcommand) {
         return vec![Hypothesis {
             score: hypothesis.score * VALIDATION_BOOST,
+            subcommand: Subcommand::Corrected(subcommand),
             ..hypothesis
         }];
     }
@@ -53,14 +53,14 @@ fn refine_one(hypothesis: Hypothesis, lookup: &HashMap<String, Vec<String>>) -> 
     let branches: Vec<Hypothesis> = candidates
         .iter()
         .filter_map(|candidate| {
-            let similarity = jaro_winkler(&subcommand, candidate);
+            let similarity = similarity::subcommand(&subcommand, candidate);
             if similarity < MIN_SIMILARITY {
                 return None;
             }
 
             Some(Hypothesis {
                 program: hypothesis.program.clone(),
-                subcommand: Some(candidate.clone()),
+                subcommand: Subcommand::Corrected(candidate.clone()),
                 args: hypothesis.args.clone(),
                 score: hypothesis.score * similarity as f32 * VALIDATION_BOOST,
             })
@@ -133,7 +133,7 @@ mod tests {
         let result = refine("git pull", &git_completions());
 
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].subcommand.as_deref(), Some("pull"));
+        assert_eq!(result[0].subcommand.value(), Some("pull"));
         assert!(
             result[0].score > 1.0,
             "validated subcommands should be boosted above the seed score"
@@ -146,7 +146,7 @@ mod tests {
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].program, "unknown");
-        assert_eq!(result[0].subcommand.as_deref(), Some("cmd"));
+        assert_eq!(result[0].subcommand.value(), Some("cmd"));
         assert_eq!(result[0].score, 1.0);
     }
 
@@ -155,7 +155,7 @@ mod tests {
         let result = refine("git", &git_completions());
 
         assert_eq!(result.len(), 1);
-        assert!(result[0].subcommand.is_none());
+        assert!(result[0].subcommand.value().is_none());
     }
 
     #[test]
@@ -163,7 +163,7 @@ mod tests {
         let result = refine("git pll origin main", &git_completions());
         let pull = result
             .iter()
-            .find(|h| h.subcommand.as_deref() == Some("pull"))
+            .find(|h| h.subcommand.value() == Some("pull"))
             .unwrap();
 
         assert_eq!(pull.args, "origin main");
@@ -174,7 +174,7 @@ mod tests {
         let result = refine("git pll", &git_completions());
         let pull = result
             .iter()
-            .find(|h| h.subcommand.as_deref() == Some("pull"))
+            .find(|h| h.subcommand.value() == Some("pull"))
             .unwrap();
 
         assert!(
@@ -189,7 +189,7 @@ mod tests {
 
         // No completion is similar enough to "zzzzzzz" → pass through.
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].subcommand.as_deref(), Some("zzzzzzz"));
+        assert_eq!(result[0].subcommand.value(), Some("zzzzzzz"));
         assert_eq!(result[0].score, 1.0);
     }
 }

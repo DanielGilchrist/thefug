@@ -9,5 +9,6 @@ pub mod path_scan;
 pub mod pipeline;
 pub mod selector;
 pub mod shell;
+pub mod similarity;
 pub mod subcommand_scan;
 pub mod suggestion;

@@ -1,0 +1,30 @@
+git pull
+zellij delete-session payroll-fix
+git checkout main
+zellij delete-session api-cleanup
+git worktree list
+git checkout feature-branch
+zellij delete-session test-agent
+git log
+git checkout main
+zellij delete-session docs-update
+git worktree add ../wt-fix
+git log --oneline
+zellij delete-session refactor
+git checkout main
+zellij list-sessions
+git worktree list
+zellij delete-session perf-work
+git checkout main
+git log
+zellij list-sessions
+git checkout feature-branch
+zellij delete-session ui-tweaks
+git worktree list
+git checkout main
+zellij delete-session bugfix
+git pull
+zellij list-sessions
+git checkout main
+git worktree remove ../wt-fix
+zellij delete-session spike

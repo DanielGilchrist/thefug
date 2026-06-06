@@ -1,18 +1,15 @@
-use crate::hypothesis::Hypothesis;
+use crate::hypothesis::{Hypothesis, Subcommand};
+use crate::similarity;
 
 use strsim::jaro_winkler;
 
 use std::collections::HashMap;
 
 static MIN_SIMILARITY: f64 = 0.5;
-// At or above this, a subcommand is treated as established and the
-// hypothesis is passed through unchanged.
 static FREQUENT_SUBCOMMAND_THRESHOLD: usize = 2;
-// Thresholds for the garbage filter: a freq-1 candidate is dropped if it's
-// at least GARBAGE_SIMILARITY similar to another candidate with at least
-// GARBAGE_NEIGHBOUR_FREQ occurrences (i.e. likely a past typo of it).
-static GARBAGE_NEIGHBOUR_FREQ: usize = 5;
-static GARBAGE_SIMILARITY: f64 = 0.8;
+static MAX_FREQUENCY_BOOST: f64 = 0.5;
+static PAST_TYPO_NEIGHBOUR_FREQUENCY: usize = 5;
+static PAST_TYPO_SIMILARITY: f64 = 0.8;
 
 pub fn apply(hypotheses: Vec<Hypothesis>, history: &[String]) -> Vec<Hypothesis> {
     hypotheses
@@ -22,31 +19,33 @@ pub fn apply(hypotheses: Vec<Hypothesis>, history: &[String]) -> Vec<Hypothesis>
 }
 
 fn refine_one(hypothesis: Hypothesis, history: &[String]) -> Vec<Hypothesis> {
-    let Some(subcommand) = hypothesis.subcommand.clone() else {
+    let Subcommand::Original(subcommand) = hypothesis.subcommand.clone() else {
         return vec![hypothesis];
     };
 
     let frequencies = subcommand_frequencies(history, &hypothesis.program);
 
-    if frequencies.get(&subcommand).copied().unwrap_or(0) >= FREQUENT_SUBCOMMAND_THRESHOLD {
+    if is_established(&subcommand, &frequencies) {
         return vec![hypothesis];
     }
+
+    let max_frequency = frequencies.values().copied().max().unwrap_or(0);
 
     let branches: Vec<Hypothesis> = frequencies
         .iter()
         .filter(|(candidate, _)| candidate.as_str() != subcommand)
-        .filter(|(candidate, freq)| !is_likely_garbage(candidate, **freq, &frequencies))
+        .filter(|(candidate, freq)| !is_likely_past_typo(candidate, **freq, &frequencies))
         .filter_map(|(candidate, freq)| {
-            let similarity = jaro_winkler(&subcommand, candidate);
+            let similarity = similarity::subcommand(&subcommand, candidate);
             if similarity < MIN_SIMILARITY {
                 return None;
             }
-            let freq_boost = (1.0 + *freq as f64).log2();
             Some(Hypothesis {
                 program: hypothesis.program.clone(),
-                subcommand: Some(candidate.clone()),
+                subcommand: Subcommand::Corrected(candidate.clone()),
                 args: hypothesis.args.clone(),
-                score: hypothesis.score * (similarity * freq_boost) as f32,
+                score: hypothesis.score
+                    * (similarity * frequency_boost(*freq, max_frequency)) as f32,
             })
         })
         .collect();
@@ -56,6 +55,16 @@ fn refine_one(hypothesis: Hypothesis, history: &[String]) -> Vec<Hypothesis> {
     } else {
         branches
     }
+}
+
+fn is_established(subcommand: &str, frequencies: &HashMap<String, usize>) -> bool {
+    frequencies.get(subcommand).copied().unwrap_or(0) >= FREQUENT_SUBCOMMAND_THRESHOLD
+}
+
+fn frequency_boost(frequency: usize, max_frequency: usize) -> f64 {
+    let relative_frequency = (1.0 + frequency as f64).log2() / (1.0 + max_frequency as f64).log2();
+
+    1.0 + MAX_FREQUENCY_BOOST * relative_frequency
 }
 
 fn subcommand_frequencies(history: &[String], program: &str) -> HashMap<String, usize> {
@@ -77,15 +86,15 @@ fn subcommand_frequencies(history: &[String], program: &str) -> HashMap<String, 
     frequencies
 }
 
-fn is_likely_garbage(candidate: &str, freq: usize, frequencies: &HashMap<String, usize>) -> bool {
+fn is_likely_past_typo(candidate: &str, freq: usize, frequencies: &HashMap<String, usize>) -> bool {
     if freq > 1 {
         return false;
     }
 
     frequencies.iter().any(|(other, &other_freq)| {
         other.as_str() != candidate
-            && other_freq >= GARBAGE_NEIGHBOUR_FREQ
-            && jaro_winkler(candidate, other) > GARBAGE_SIMILARITY
+            && other_freq >= PAST_TYPO_NEIGHBOUR_FREQUENCY
+            && jaro_winkler(candidate, other) > PAST_TYPO_SIMILARITY
     })
 }
 
@@ -157,7 +166,7 @@ mod tests {
         let result = refine("git", &history());
 
         assert_eq!(result.len(), 1);
-        assert!(result[0].subcommand.is_none());
+        assert!(result[0].subcommand.value().is_none());
         assert_eq!(result[0].score, 1.0);
     }
 
@@ -166,7 +175,7 @@ mod tests {
         let result = refine("git pull", &history());
 
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].subcommand.as_deref(), Some("pull"));
+        assert_eq!(result[0].subcommand.value(), Some("pull"));
         assert_eq!(
             result[0].score, 1.0,
             "established subcommand must not change score"
@@ -192,7 +201,7 @@ mod tests {
         let result = refine("git zzzzz", &history());
 
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].subcommand.as_deref(), Some("zzzzz"));
+        assert_eq!(result[0].subcommand.value(), Some("zzzzz"));
         assert_eq!(result[0].score, 1.0);
     }
 
@@ -223,7 +232,7 @@ mod tests {
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].program, "unknown");
-        assert_eq!(result[0].subcommand.as_deref(), Some("cmd"));
+        assert_eq!(result[0].subcommand.value(), Some("cmd"));
     }
 
     #[test]

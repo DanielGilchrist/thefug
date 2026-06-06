@@ -8,16 +8,37 @@ use crate::parsed_command::ParsedCommand;
 #[derive(Clone, Debug, PartialEq)]
 pub struct Hypothesis {
     pub program: String,
-    pub subcommand: Option<String>,
+    pub subcommand: Subcommand,
     pub args: String,
     pub score: f32,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum Subcommand {
+    Absent,
+    Original(String),
+    Corrected(String),
+}
+
+impl Subcommand {
+    pub fn value(&self) -> Option<&str> {
+        match self {
+            Self::Absent => None,
+            Self::Original(value) | Self::Corrected(value) => Some(value),
+        }
+    }
+}
+
 impl Hypothesis {
     pub fn from_parsed(parsed: &ParsedCommand) -> Self {
+        let subcommand = match parsed.subcommand {
+            Some(subcommand) => Subcommand::Original(subcommand.to_string()),
+            None => Subcommand::Absent,
+        };
+
         Self {
             program: parsed.program.to_string(),
-            subcommand: parsed.subcommand.map(str::to_string),
+            subcommand,
             args: parsed.args.to_string(),
             score: 1.0,
         }
@@ -25,12 +46,12 @@ impl Hypothesis {
 
     pub fn matches_original(&self, parsed: &ParsedCommand) -> bool {
         self.program == parsed.program
-            && self.subcommand.as_deref() == parsed.subcommand
+            && self.subcommand.value() == parsed.subcommand
             && self.args == parsed.args
     }
 
     pub fn to_command(&self) -> String {
-        match (&self.subcommand, self.args.is_empty()) {
+        match (self.subcommand.value(), self.args.is_empty()) {
             (Some(sub), false) => format!("{} {} {}", self.program, sub, self.args),
             (Some(sub), true) => format!("{} {}", self.program, sub),
             (None, false) => format!("{} {}", self.program, self.args),
@@ -49,7 +70,7 @@ mod tests {
         let h = Hypothesis::from_parsed(&parsed);
 
         assert_eq!(h.program, "git");
-        assert_eq!(h.subcommand.as_deref(), Some("pull"));
+        assert_eq!(h.subcommand, Subcommand::Original("pull".to_string()));
         assert_eq!(h.args, "origin");
         assert_eq!(h.score, 1.0);
     }
@@ -72,10 +93,19 @@ mod tests {
     }
 
     #[test]
+    fn corrected_subcommand_with_original_text_still_matches_original() {
+        let parsed = ParsedCommand::parse("git pull");
+        let mut h = Hypothesis::from_parsed(&parsed);
+        h.subcommand = Subcommand::Corrected("pull".to_string());
+
+        assert!(h.matches_original(&parsed));
+    }
+
+    #[test]
     fn to_command_program_only() {
         let h = Hypothesis {
             program: "git".to_string(),
-            subcommand: None,
+            subcommand: Subcommand::Absent,
             args: String::new(),
             score: 1.0,
         };
@@ -87,7 +117,7 @@ mod tests {
     fn to_command_program_and_subcommand() {
         let h = Hypothesis {
             program: "git".to_string(),
-            subcommand: Some("pull".to_string()),
+            subcommand: Subcommand::Original("pull".to_string()),
             args: String::new(),
             score: 1.0,
         };
@@ -99,7 +129,7 @@ mod tests {
     fn to_command_with_args() {
         let h = Hypothesis {
             program: "git".to_string(),
-            subcommand: Some("pull".to_string()),
+            subcommand: Subcommand::Corrected("pull".to_string()),
             args: "origin main".to_string(),
             score: 1.0,
         };
@@ -111,7 +141,7 @@ mod tests {
     fn to_command_program_with_args_no_subcommand() {
         let h = Hypothesis {
             program: "ls".to_string(),
-            subcommand: None,
+            subcommand: Subcommand::Absent,
             args: "-la".to_string(),
             score: 1.0,
         };

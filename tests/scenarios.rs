@@ -7,14 +7,39 @@
 
 use thefug::{
     attempt::Attempt,
+    completions::Completions,
     pipeline::{Pass, Pipeline},
     suggestion::Suggestion,
 };
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
 const MAX_SUGGESTIONS: usize = 5;
+
+struct StaticCompletions(HashMap<String, Vec<String>>);
+
+impl StaticCompletions {
+    fn new(entries: &[(&str, &[&str])]) -> Self {
+        let map = entries
+            .iter()
+            .map(|(program, subcommands)| {
+                (
+                    program.to_string(),
+                    subcommands.iter().map(|s| s.to_string()).collect(),
+                )
+            })
+            .collect();
+        Self(map)
+    }
+}
+
+impl Completions for StaticCompletions {
+    fn subcommands(&self, program: &str) -> Vec<String> {
+        self.0.get(program).cloned().unwrap_or_default()
+    }
+}
 
 fn load_fixture(name: &str) -> Vec<String> {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -33,6 +58,20 @@ fn run(failed_command: &str, fixture: &str) -> Vec<Suggestion> {
     let attempt = Attempt::from_inputs(failed_command.to_string(), load_fixture(fixture));
     Pipeline::new(MAX_SUGGESTIONS)
         .add_pass(Pass::Path)
+        .add_pass(Pass::Subcommand)
+        .run(&attempt)
+}
+
+fn run_with_completions(
+    failed_command: &str,
+    fixture: &str,
+    completions: StaticCompletions,
+) -> Vec<Suggestion> {
+    let attempt = Attempt::from_inputs(failed_command.to_string(), load_fixture(fixture));
+    Pipeline::new(MAX_SUGGESTIONS)
+        .with_completions(Box::new(completions))
+        .add_pass(Pass::Path)
+        .add_pass(Pass::Completion)
         .add_pass(Pass::Subcommand)
         .run(&attempt)
 }
@@ -106,6 +145,68 @@ fn composes_path_and_subcommand_passes_for_double_typo() {
     assert!(
         commands.contains(&"git pull"),
         "double-typo should resolve to 'git pull' via Path + Subcommand composition: {commands:?}"
+    );
+}
+
+#[test]
+fn corrected_subcommand_is_not_rebranched_toward_frequent_history() {
+    let completions = StaticCompletions::new(&[
+        (
+            "git",
+            &[
+                "pull", "push", "status", "commit", "checkout", "log", "worktree", "apply",
+                "blame", "clean", "clone", "help", "ls-files", "prune", "reflog",
+            ] as &[&str],
+        ),
+        (
+            "zellij",
+            &[
+                "kill-session",
+                "delete-session",
+                "delete-all-sessions",
+                "kill-all-sessions",
+                "list-sessions",
+                "list-aliases",
+                "plugin",
+                "pipe",
+                "help",
+            ],
+        ),
+    ]);
+    let suggestions = run_with_completions("gti pll", "zellij_noise.txt", completions);
+    let commands = commands(&suggestions);
+
+    assert_eq!(
+        suggestions[0].command, "git pull",
+        "expected 'git pull' first: {commands:?}"
+    );
+    for laundered in ["delete-session", "worktree", "checkout", "git log"] {
+        assert!(
+            !commands.iter().any(|c| c.contains(laundered)),
+            "'{laundered}' bears no resemblance to 'pll' and must not be suggested: {commands:?}"
+        );
+    }
+
+    let mut unique = commands.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(
+        unique.len(),
+        commands.len(),
+        "suggestions must not contain duplicates: {commands:?}"
+    );
+}
+
+#[test]
+fn similarity_outranks_frequency() {
+    let suggestions = run("git pll", "git_push_heavy.txt");
+
+    assert!(!suggestions.is_empty(), "expected at least one suggestion");
+    assert_eq!(
+        suggestions[0].command,
+        "git pull",
+        "'pll' is textually much closer to 'pull' than 'push'; frequency must not overturn that: {:?}",
+        commands(&suggestions)
     );
 }
 

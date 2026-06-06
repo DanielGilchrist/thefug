@@ -61,7 +61,7 @@ impl Pipeline {
             pass.apply(hypotheses, &attempt.history, self.completions.as_ref())
         });
 
-        let mut suggestions: Vec<Suggestion> = hypotheses
+        let suggestions = hypotheses
             .into_iter()
             .filter(|h| !h.matches_original(&parsed))
             .map(|h| Suggestion {
@@ -70,17 +70,28 @@ impl Pipeline {
             })
             .collect();
 
-        suggestions.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        suggestions.dedup_by(|a, b| a.command == b.command);
-        suggestions.truncate(self.max_suggestions);
-
-        suggestions
+        rank(suggestions, self.max_suggestions)
     }
+}
+
+fn rank(mut suggestions: Vec<Suggestion>, limit: usize) -> Vec<Suggestion> {
+    suggestions.sort_by(by_score_descending_then_command);
+    retain_highest_scored_per_command(&mut suggestions);
+    suggestions.truncate(limit);
+
+    suggestions
+}
+
+fn by_score_descending_then_command(a: &Suggestion, b: &Suggestion) -> std::cmp::Ordering {
+    b.score
+        .partial_cmp(&a.score)
+        .unwrap_or(std::cmp::Ordering::Equal)
+        .then_with(|| a.command.cmp(&b.command))
+}
+
+fn retain_highest_scored_per_command(suggestions: &mut Vec<Suggestion>) {
+    let mut seen = std::collections::HashSet::new();
+    suggestions.retain(|suggestion| seen.insert(suggestion.command.clone()));
 }
 
 #[cfg(test)]
