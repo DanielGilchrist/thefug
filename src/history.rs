@@ -132,7 +132,6 @@ impl History {
             shell::Type::Bash => self._parse(BashParser),
             shell::Type::Fish => self._parse(FishParser),
             shell::Type::Zsh => self._parse(ZshParser),
-            shell::Type::Unknown => unimplemented!(),
         }
     }
 

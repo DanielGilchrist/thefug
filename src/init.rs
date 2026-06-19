@@ -1,7 +1,6 @@
 use crate::shell::{self, Shell};
 
 use std::env;
-use std::fmt;
 use std::io;
 use std::path::Path;
 
@@ -9,46 +8,22 @@ pub struct Init {
     shell: Shell,
 }
 
-#[derive(Debug)]
-pub enum Error {
-    UnsupportedShell,
-    Io(io::Error),
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Error::UnsupportedShell => write!(f, "unsupported shell"),
-            Error::Io(e) => write!(f, "{e}"),
-        }
-    }
-}
-
-impl std::error::Error for Error {}
-
-impl From<io::Error> for Error {
-    fn from(e: io::Error) -> Self {
-        Error::Io(e)
-    }
-}
-
 impl Init {
     pub fn new(shell: Shell) -> Init {
         Init { shell }
     }
 
-    pub fn script(&self) -> Result<String, Error> {
+    pub fn script(&self) -> io::Result<String> {
         let bin = env::current_exe()?;
-        self.script_for(&bin)
+        Ok(self.script_for(&bin))
     }
 
-    fn script_for(&self, bin: &Path) -> Result<String, Error> {
-        let bin = bin.display();
+    fn script_for(&self, bin: &Path) -> String {
+        let bin = bin.display().to_string();
         match self.shell.type_ {
-            shell::Type::Bash => Ok(bash_script(&bin.to_string())),
-            shell::Type::Zsh => Ok(zsh_script(&bin.to_string())),
-            shell::Type::Fish => Ok(fish_script(&bin.to_string())),
-            shell::Type::Unknown => Err(Error::UnsupportedShell),
+            shell::Type::Bash => bash_script(&bin),
+            shell::Type::Zsh => zsh_script(&bin),
+            shell::Type::Fish => fish_script(&bin),
         }
     }
 }
@@ -60,7 +35,7 @@ fn bash_script(bin: &str) -> String {
         r#"fug() {{
     history -a 2>/dev/null
     local _fug_out
-    _fug_out=$(command "{bin}")
+    _fug_out=$(command "{bin}" bash)
     if [ "$_fug_out" = "No fugs given." ]; then
         echo "$_fug_out"
     else
@@ -78,7 +53,7 @@ fn zsh_script(bin: &str) -> String {
         r#"fug() {{
     fc -W 2>/dev/null
     local _fug_out
-    _fug_out=$(command "{bin}")
+    _fug_out=$(command "{bin}" zsh)
     if [ "$_fug_out" = "No fugs given." ]; then
         echo "$_fug_out"
     else
@@ -94,7 +69,7 @@ fn zsh_script(bin: &str) -> String {
 fn fish_script(bin: &str) -> String {
     format!(
         r#"function fug
-    set -l _fug_out (command "{bin}")
+    set -l _fug_out (command "{bin}" fish)
     if test "$_fug_out" = "No fugs given."
         echo "$_fug_out"
     else
@@ -115,47 +90,43 @@ mod tests {
         Init::new(Shell { type_ })
     }
 
-    fn script_for(type_: shell::Type, bin: &str) -> Result<String, Error> {
+    fn script_for(type_: shell::Type, bin: &str) -> String {
         init(type_).script_for(&PathBuf::from(bin))
     }
 
     #[test]
     fn bash_script_defines_fug_and_calls_absolute_path() {
-        let s = script_for(shell::Type::Bash, "/opt/homebrew/bin/thefug").unwrap();
+        let s = script_for(shell::Type::Bash, "/opt/homebrew/bin/thefug");
 
         assert!(s.contains("fug()"));
         assert!(s.contains("/opt/homebrew/bin/thefug"));
         assert!(s.contains("history -a"));
+        assert!(s.contains("\" bash)"));
     }
 
     #[test]
     fn zsh_script_uses_fc_w_to_flush_history() {
-        let s = script_for(shell::Type::Zsh, "/usr/local/bin/thefug").unwrap();
+        let s = script_for(shell::Type::Zsh, "/usr/local/bin/thefug");
 
         assert!(s.contains("fug()"));
         assert!(s.contains("/usr/local/bin/thefug"));
         assert!(s.contains("fc -W"));
+        assert!(s.contains("\" zsh)"));
     }
 
     #[test]
     fn fish_script_uses_function_syntax() {
-        let s = script_for(shell::Type::Fish, "/usr/local/bin/thefug").unwrap();
+        let s = script_for(shell::Type::Fish, "/usr/local/bin/thefug");
 
         assert!(s.contains("function fug"));
         assert!(s.contains("/usr/local/bin/thefug"));
         assert!(s.contains("end"));
-    }
-
-    #[test]
-    fn unknown_shell_returns_error() {
-        let result = script_for(shell::Type::Unknown, "/whatever");
-
-        assert!(matches!(result, Err(Error::UnsupportedShell)));
+        assert!(s.contains("\" fish)"));
     }
 
     #[test]
     fn bash_script_handles_no_fugs_response() {
-        let s = script_for(shell::Type::Bash, "/x").unwrap();
+        let s = script_for(shell::Type::Bash, "/x");
 
         assert!(s.contains("No fugs given."));
     }

@@ -17,16 +17,24 @@ static MAX_SUGGESTIONS: usize = 5;
 static NO_SUGGESTION_NEEDED: &str = "No fugs given.";
 
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
+#[command(author, version, about, long_about = None, arg_required_else_help = true)]
 struct Options {
     #[command(subcommand)]
     mode: Option<Mode>,
+
+    /// Shell whose history to read when suggesting a correction (bash, zsh, or fish)
+    #[arg(value_parser = parse_shell)]
+    shell: Option<Shell>,
 }
 
 #[derive(Subcommand, Debug)]
 enum Mode {
-    /// Print shell integration to stdout (use with `eval "$(thefug init)"`)
-    Init,
+    /// Print shell integration to stdout (e.g. `thefug init fish | source`)
+    Init {
+        /// Shell to emit integration for (bash, zsh, or fish)
+        #[arg(value_parser = parse_shell)]
+        shell: Shell,
+    },
     /// Run against explicit inputs instead of shell history
     Simulate {
         /// The failed command to suggest corrections for
@@ -43,18 +51,27 @@ enum Mode {
 }
 
 fn main() {
-    let shell = Shell::default();
     let options = Options::parse();
 
     match options.mode {
-        Some(Mode::Init) => run_init(shell),
+        Some(Mode::Init { shell }) => run_init(shell),
         Some(Mode::Simulate {
             command,
             history,
             print,
         }) => run_simulate(command, history, print),
-        None => run_default(shell),
+        None => match options.shell {
+            Some(shell) => run_default(shell),
+            None => {
+                eprintln!("a shell is required (e.g. `thefug fish`)");
+                std::process::exit(1);
+            }
+        },
     }
+}
+
+fn parse_shell(name: &str) -> Result<Shell, String> {
+    Shell::from_name(name).ok_or_else(|| format!("unsupported shell '{name}' (expected one of: bash, zsh, fish)"))
 }
 
 fn run_init(shell: Shell) {
