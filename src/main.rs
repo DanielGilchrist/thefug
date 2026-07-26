@@ -71,7 +71,8 @@ fn main() {
 }
 
 fn parse_shell(name: &str) -> Result<Shell, String> {
-    Shell::from_name(name).ok_or_else(|| format!("unsupported shell '{name}' (expected one of: bash, zsh, fish)"))
+    Shell::from_name(name)
+        .ok_or_else(|| format!("unsupported shell '{name}' (expected one of: bash, zsh, fish)"))
 }
 
 fn run_init(shell: Shell) {
